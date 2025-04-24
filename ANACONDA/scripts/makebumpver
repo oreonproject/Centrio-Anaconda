@@ -1,0 +1,460 @@
+#!/usr/bin/python3
+#
+# makebumpver - Increment version number and add in RPM spec file changelog
+#               block.  Ensures rhel*-branch commits reference RHEL bugs.
+#
+# Copyright (C) 2009-2015  Red Hat, Inc.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU Lesser General Public License as published
+# by the Free Software Foundation; either version 2.1 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+import textwrap
+import sys
+import subprocess
+import re
+import os
+import argparse
+import datetime
+import logging
+
+from rhel_version import rhel_version
+from functools import cache
+
+try:
+    from jira import JIRA, JIRAError # pylint: disable=import-error
+except ModuleNotFoundError:
+    print("Can't find jira python library. Please install it ideally by:\n", file=sys.stderr)
+    print("dnf install python3-jira\n", file=sys.stderr)
+    print("Otherwise it could be installed also by pip:\n", file=sys.stderr)
+    print("pip3 install jira", file=sys.stderr)
+
+    sys.exit(2)
+
+log = logging.getLogger("bumpver")
+log.setLevel(logging.INFO)
+
+VERSION_NUMBER_INCREMENT = 1
+DEFAULT_ADDED_VERSION_NUMBER = 1
+DEFAULT_MINOR_VERSION_NUMBER = 1
+
+TOKEN_PATH = "~/.config/anaconda/jira"
+
+def run_program(*args):
+    """Run a program with universal newlines on"""
+    # pylint: disable=no-value-for-parameter
+    return subprocess.Popen(*args, universal_newlines=True, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE).communicate()
+
+
+def print_failure(msg, bug, action, commit, summary):
+    print(f"*** {action} {bug}: {msg}.")
+    print(f"***     Commit: {commit}")
+    print(f"***     {summary}\n")
+
+
+class ParseCommaSeparatedList(argparse.Action):
+    """A parsing action that parses a comma separated list from the value provided to the option into a list."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        value_list = []
+        for value in values.split(","):
+            # strip any whitespace prefix/suffix
+            value = value.strip()
+            # add what remains to the list
+            # (" ".strip() -> "")
+            if value:
+                value_list.append(value)
+        setattr(namespace, self.dest, value_list)
+
+
+class JIRAValidator:
+    def __init__(self):
+        self.jira = None
+
+        self._connect()
+
+    def _connect(self):
+        """Connect to our JIRA instance by provided token file."""
+        token = self._read_token(TOKEN_PATH)
+        self.jira = JIRA("https://issues.redhat.com/", token_auth=token)
+
+    @staticmethod
+    def _read_token(token_path):
+        token_path = os.path.expanduser(token_path)
+        try:
+            with open(token_path, "r", encoding="utf-8") as f:
+                return f.read().strip()
+        except FileNotFoundError:
+            print(f"Token can't be found! Please generate your JIRA token in {TOKEN_PATH}", file=sys.stderr)
+            print("Please generate the token here: https://issues.redhat.com/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens")
+            sys.exit(1)
+
+        return None
+
+    @cache
+    def _query_RHEL_issue(self, bug):
+        try:
+            issue = self.jira.issue(bug)
+        except JIRAError as ex:
+            raise ValueError(f"Error during JIRA query for bug {bug}: {ex.text}") from ex
+
+        return issue
+
+    def check_if_RHEL_issue(self, bug):
+        if not bug.startswith("RHEL-"):
+            return False, "is not the 'RHEL' JIRA project - Skipping"
+
+        self._query_RHEL_issue(bug)
+
+        return True, ""
+
+    def validate_RHEL_issue_status(self, bug):
+        issue = self._query_RHEL_issue(bug)
+
+        # translation from status id to name because JIRA is using locale set in the JIRA account
+        # that can't be changed from REST API
+        valid_status_map = {13521: "Planning",
+                            10018: "In Progress"}
+
+        status = issue.fields.status
+        if int(status.id) not in valid_status_map:
+            return False, f"incorrect status! Valid values: {', '.join(valid_status_map.values())}"
+
+        return True, ""
+
+    def validate_RHEL_issue_fixversion(self, bug):
+        issue = self._query_RHEL_issue(bug)
+
+        valid_fix_version = rhel_version
+        fix_version = issue.fields.fixVersions
+        for version in fix_version:
+            # Let's simplify and check only major version (ignore minor RHEL releases)
+            if version.name.startswith(valid_fix_version):
+                return True, ""
+
+        current_versions = ", ".join(map(lambda x: x.name, fix_version))
+        msg = f"incorrect fixVersion '{current_versions}'! It has to start with {valid_fix_version}"
+        return False, msg
+
+
+class MakeBumpVer:
+    def __init__(self):
+        cwd = os.getcwd()
+        self.configure = os.path.realpath(cwd + '/configure.ac')
+        self.spec = os.path.realpath(cwd + '/anaconda.spec.in')
+
+        with open(self.configure, "rt") as f:
+            config_ac = f.read()
+
+        # get current package name, version & bug reporting email from configure.ac in case they are needed
+        #
+        # It looks like false positive raised on python 3.6
+        # pylint: disable=no-member
+        regexp = re.compile(r"AC_INIT\(\[(.*)\], \[(.*)\], \[(.*)\]\)", flags=re.MULTILINE)
+        values = re.search(regexp, config_ac).groups()
+        current_name = values[0]
+        current_version = values[1]
+        current_bug_reporting_mail = values[2]
+        # also get the current release number
+        regexp = re.compile(r"ANACONDA_RELEASE, \[(.*)\]")
+
+        # argument parsing
+        parser = argparse.ArgumentParser(description="Increments version number and adds the RPM spec file changelog block. "
+                                                     "Also runs some checks such as ensuring rhel*-branch commits correctly "
+                                                     "reference RHEL bugs.",
+                                         epilog="The -i switch is intended for use with utility commits that we do not need to "
+                                                "reference in the spec file changelog.\n")
+
+        parser.add_argument("-n", "--name", dest="name", default=current_name,
+                            metavar="PACKAGE NAME", help="Package name.")
+        parser.add_argument("-v", "--version", dest="version", default=current_version, metavar="CURRENT PACKAGE VERSION",
+                            help="Current package version number.")
+        parser.add_argument("-b", "--bugreport", dest="bugreporting_email", default=current_bug_reporting_mail, metavar="EMAIL ADDRESS",
+                            help="Bug reporting email address.")
+        parser.add_argument("-i", "--ignore", dest="ignored_commits", default=[], action=ParseCommaSeparatedList,
+                            metavar="COMMA SEAPARATED COMMIT IDS", help="Comma separated list of git commits to ignore.")
+        parser.add_argument("-S", "--skip-checks", dest="skip_all_checks", action="store_true", default=False,
+                            help="Skip all checks.")
+        parser.add_argument("-d", "--debug", dest="debug", action="store_true", default=False,
+                            help="Enable debug logging to stdout.")
+        parser.add_argument("--dry-run", dest="dry_run", action="store_true", default=False,
+                            help="Do not change any files, only run checks.")
+        parser.add_argument("-c", "--commit-and-tag", dest="commit_and_tag", action="store_true",
+                            help="Create and tag a release commit once bumping the Anaconda version.")
+        parser.add_argument("--bump-major-version", dest="bump_major_version", action="store_true",
+                            help="Bump Anaconda major version and reset minor version to 1.")
+        parser.add_argument("--add-version-number", dest="add_version_number", action="store_true",
+                            help="Add another . separated version number starting at 1. Typically used for branching from Rawhide.")
+
+        # gather all unprocessed command line arguments
+        parser.add_argument(nargs=argparse.REMAINDER, dest="unknown_arguments")
+
+        self.args = parser.parse_args()
+        if self.args.debug:
+            logging.basicConfig(level=logging.DEBUG)
+
+        if self.args.bump_major_version and self.args.add_version_number:
+            print("The --bump-major-version and --add-version-number options can't be used at the same time.",
+                  file=sys.stderr)
+            sys.exit(1)
+
+        if self.args.unknown_arguments:
+            parser.print_usage()
+            args_string = " ".join(self.args.unknown_arguments)
+            print("unknown arguments: %s" % args_string, file=sys.stderr)
+            sys.exit(1)
+
+        if not os.path.isfile(self.configure) and not os.path.isfile(self.spec):
+            print("You must be at the top level of the anaconda source tree.", file=sys.stderr)
+            sys.exit(1)
+
+        # general initialization
+        log.debug("%s", self.args)
+        self._jira = JIRAValidator()
+
+        self.gituser = self._git_config('user.name')
+        self.gitemail = self._git_config('user.email')
+
+        self.name = self.args.name
+        self.version = self.args.version
+        self.bugreport = self.args.bugreporting_email
+        self.ignore = self.args.ignored_commits
+        self.skip = self.args.skip_all_checks
+        self.dry_run = self.args.dry_run
+
+        self.git_branch = None
+
+        # RHEL release number or None (also fills in self.git_branch)
+        self.rhel = self._is_RHEL()
+
+    def _git_config(self, field):
+        proc = run_program(['git', 'config', field])
+        return proc[0].strip('\n')
+
+    def _increment_version(self, bump_major_version=False, add_version_number=False):
+        fields = self.version.split('.')
+        if add_version_number:  # add another version number to the end
+            fields.append(str(int(DEFAULT_ADDED_VERSION_NUMBER)))
+        elif bump_major_version:  # increment major version
+            fields[0] = str(int(fields[0]) + VERSION_NUMBER_INCREMENT)  # bump major version
+            fields[1] = str(int(DEFAULT_MINOR_VERSION_NUMBER))  # reset minor version to 1
+        else:  # minor version bump
+            fields[-1] = str(int(fields[-1]) + VERSION_NUMBER_INCREMENT)
+        new = ".".join(fields)
+        return new
+
+    def _is_RHEL(self):
+        if rhel_version:
+            return True
+
+        return False
+
+    def _get_commit_detail(self, commit, field):
+        proc = run_program(['git', 'log', '-1', "--pretty=format:%s" % field, commit])
+        ret = proc[0].strip('\n').split('\n')
+
+        if len(ret) == 1 and ret[0].find('@') != -1:
+            ret = [ret[0].split('@')[0]]
+        elif len(ret) == 1:
+            ret = [ret[0]]
+        else:
+            ret = [x for x in ret if x != '']
+
+        return ret
+
+    def _rpm_log(self, fixedIn):
+        git_range = "%s-%s.." % (self.name, self.version)
+        proc = run_program(['git', 'log', '--no-merges', '--pretty=oneline', git_range])
+        lines = proc[0].strip('\n').split('\n')
+
+        for commit in self.ignore:
+            lines = [x for x in lines if not x.startswith(commit)]
+
+        rpm_log = []
+        bad = False
+
+        for line in lines:
+            if not line:
+                continue
+            fields = line.split(' ')
+            commit = fields[0]
+
+            summary = self._get_commit_detail(commit, "%s")[0]
+            body = self._get_commit_detail(commit, "%b")
+            author = self._get_commit_detail(commit, "%aE")[0]
+
+            # Ignore commits from github-actions are only translations
+            if author == "github-actions":
+                print("*** Ignoring commit %s by %s\n" % (author, commit))
+                continue
+
+            if re.match(r".*(#infra).*", summary) or re.match(r"infra: .*", summary):
+                print("*** Ignoring (#infra) commit %s\n" % commit)
+                continue
+
+            if re.match(r".*(#test[s]).*", summary) or re.match(r"test[s]: .*", summary):
+                print("*** Ignoring (#test) commit %s\n" % commit)
+                continue
+
+            if self.rhel:
+                bad_commit, bugs = self._check_rhel_issues(commit, summary, body, author)
+
+                # If one of the commits were bad mark whole set as bad
+                if bad_commit:
+                    bad = True
+
+                rpm_log.append(("%s (%s)" % (summary.strip(), author), list(bugs)))
+            else:
+                rpm_log.append(("%s (%s)" % (summary.strip(), author), None))
+
+        if bad:
+            sys.exit(1)
+
+        return rpm_log
+
+    def _check_rhel_issues(self, commit, summary, body, author):
+        issues = set()
+        bad = False
+
+        summary = summary + f" ({author})"
+
+        for bodyline in body:
+            # based on recommendation
+            # https://source.redhat.com/groups/public/release-engineering/release_engineering_rcm_wiki/using_gitbz
+            m = re.search(r"^(Resolves|Related|Reverts):\ +(\w+-\d+).*$", bodyline)
+            if not m:
+                continue
+
+            action = m.group(1)
+            bug = m.group(2)
+
+            if action and bug:
+                # store the bug to output list if checking is disabled and continue
+                if self.skip:
+                    issues.add(f"{action}: {bug}")
+                    print(f"*** {action} {bug} commit {commit} is skipping checks\n")
+                    continue
+
+                if not self._jira.check_if_RHEL_issue(bug):
+                    print_failure("is not the 'RHEL' JIRA project", bug, action, commit, summary)
+                    bad = True
+                    continue
+
+                valid_status, msg = self._jira.validate_RHEL_issue_status(bug)
+                if not valid_status:
+                    print_failure(msg, bug, action, commit, summary)
+                    bad = True
+                    continue
+
+                valid_fixversion, msg = self._jira.validate_RHEL_issue_fixversion(bug)
+                if not valid_fixversion:
+                    print_failure(msg, bug, action, commit, summary)
+                    bad = True
+                    continue
+
+                print(f"*** {action} {bug} commit {commit} is allowed\n")
+                issues.add(f"{action}: {bug}")
+
+        if len(issues) == 0 and not self.skip:
+            print("*** No bugs referenced in commit %s\n" % commit)
+            bad = True
+
+        return bad, issues
+
+    def _write_new_configure(self, newVersion):
+        f = open(self.configure, 'r')
+        l = f.readlines()
+        f.close()
+
+        i = l.index("AC_INIT([%s], [%s], [%s])\n" % (self.name,
+                                                     self.version,
+                                                     self.bugreport))
+        l[i] = "AC_INIT([%s], [%s], [%s])\n" % (self.name,
+                                                newVersion,
+                                                self.bugreport)
+
+        f = open(self.configure, 'w')
+        f.writelines(l)
+        f.close()
+
+    def _write_new_spec(self, newVersion, rpmlog):
+        f = open(self.spec, 'r')
+        l = f.readlines()
+        f.close()
+
+        i = l.index('%changelog\n')
+        top = l[:i]
+        bottom = l[i + 1:]
+
+        f = open(self.spec, 'w')
+        f.writelines(top)
+
+        f.write("%changelog\n")
+        today = datetime.date.today()
+        stamp = today.strftime("%a %b %d %Y")
+        f.write("* %s %s <%s> - %s-1\n" % (stamp, self.gituser,
+                                           self.gitemail, newVersion))
+
+        for msg, bugs in rpmlog:
+            msg = re.sub('(?<!%)%%(?!%)|(?<!%%)%(?!%%)', '%%', msg)
+            sublines = textwrap.wrap(msg, 77)
+            f.write("- %s\n" % sublines[0])
+
+            if len(sublines) > 1:
+                for subline in sublines[1:]:
+                    f.write("  %s\n" % subline)
+
+            if bugs:
+                for entry in bugs:
+                    f.write("  %s\n" % entry)
+
+        f.write("\n")
+        f.writelines(bottom)
+        f.close()
+
+    def _do_release_commit(self, new_version):
+        log.info("creating a tagged release commit")
+        commit_message = "New version - %s" % new_version
+        release_tag = "anaconda-%s" % (new_version)
+        # stage configure.ac and the spec file
+        run_program(['git', 'add', self.configure, self.spec])
+        # log the changes that will be commited
+        proc = run_program(['git', 'diff', '--cached'])
+        # lines = commit_proc[0].strip('\n').split('\n')
+        log.info("changes to be commited:\n%s", proc[0])
+        # make the release commit
+        run_program(['git', 'commit', '-m', commit_message])
+        # tag the release
+        run_program(['git', 'tag', '-a', '-m', commit_message, release_tag])
+        # log the commit message & tag
+        log.info("commit message: %s", commit_message)
+        log.info("tag: %s", release_tag)
+
+    def run(self):
+        newVersion = self._increment_version(bump_major_version=self.args.bump_major_version,
+                                            add_version_number=self.args.add_version_number)
+        fixedIn = "%s-%s" % (self.name, newVersion)
+        rpmlog = self._rpm_log(fixedIn)
+
+        if not self.dry_run:
+            self._write_new_configure(newVersion)
+            self._write_new_spec(newVersion, rpmlog)
+
+        # do a release commit and tag it with the appropriate tag
+        if self.args.commit_and_tag:
+            self._do_release_commit(newVersion)
+
+
+if __name__ == "__main__":
+    mbv = MakeBumpVer()
+    mbv.run()
