@@ -152,6 +152,8 @@ _anaconda_bus = None # Cache the bus connection
 def get_anaconda_bus():
     """Gets a connection to the Anaconda D-Bus session bus.
     
+    Assumes DBUS_SESSION_BUS_ADDRESS is set correctly externally
+    (e.g., by dbus-launch).
     Caches the connection for reuse.
     Returns None if dasbus is not available or connection fails.
     """
@@ -161,32 +163,24 @@ def get_anaconda_bus():
         return None
         
     if _anaconda_bus is None:
-        addr = os.environ.get(DBUS_ANACONDA_SESSION_ADDRESS)
-        if not addr and os.path.exists(ANACONDA_BUS_ADDR_FILE):
-            try:
-                with open(ANACONDA_BUS_ADDR_FILE, 'r') as f:
-                    addr = f.read().strip()
-                print(f"Read Anaconda bus address from file: {ANACONDA_BUS_ADDR_FILE}")
-            except Exception as e:
-                print(f"ERROR: Failed to read Anaconda bus address file {ANACONDA_BUS_ADDR_FILE}: {e}")
-                return None
-        elif addr:
-             print(f"Using Anaconda bus address from env var: {DBUS_ANACONDA_SESSION_ADDRESS}")
-
-        if not addr:
-            print("ERROR: Anaconda D-Bus session address not found.")
-            return None
-
+        # Remove logic checking for custom address file/env var
+        # Rely on dasbus finding the address via standard env var
         try:
-            print(f"Connecting to Anaconda D-Bus at address: {addr}")
-            # Use dasbus to connect to the specific address
-            _anaconda_bus = dasbus.connection.MessageBus(bus_address=addr)
-            print("Successfully connected to Anaconda D-Bus.")
+            print(f"Connecting to session D-Bus (expecting DBUS_SESSION_BUS_ADDRESS)...")
+            # Use standard SessionMessageBus
+            _anaconda_bus = dasbus.connection.SessionMessageBus()
+            # Verify connection (optional, but good practice)
+            _anaconda_bus.dbus.Hello()
+            print("Successfully connected to session D-Bus.")
         except DBusError as e:
-            print(f"ERROR: Failed to connect to Anaconda D-Bus at {addr}: {e}")
-            _anaconda_bus = None # Ensure it's None on failure
+            print(f"ERROR: Failed to connect to session D-Bus: {e}")
+            _anaconda_bus = None
+        except KeyError as e:
+             # This likely means DBUS_SESSION_BUS_ADDRESS wasn't set
+             print(f"ERROR: Failed to connect to session D-Bus - Environment variable likely missing: {e}")
+             _anaconda_bus = None
         except Exception as e:
-            print(f"ERROR: Unexpected error connecting to Anaconda D-Bus: {e}")
+            print(f"ERROR: Unexpected error connecting to session D-Bus: {e}")
             _anaconda_bus = None
 
     return _anaconda_bus

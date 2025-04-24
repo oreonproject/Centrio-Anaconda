@@ -3,8 +3,12 @@
 # centrio_installer/main.py
 
 import sys
+import os
+import subprocess
+import signal
 import gi
 import logging # Import logging
+import atexit # For cleanup
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Adw, GLib
@@ -18,6 +22,53 @@ log_format = '%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)
 logging.basicConfig(level=logging.INFO, format=log_format)
 # You could also log to a file:
 # logging.basicConfig(filename='/tmp/centrio-installer.log', filemode='w', level=logging.DEBUG, format=log_format)
+
+# --- Global Process Management --- 
+_dbus_daemon_proc = None
+_anaconda_boss_proc = None
+_process_pids = [] # Store PIDs for cleanup
+
+def cleanup_processes():
+    """Terminate launched background processes on exit."""
+    logging.info("Cleaning up launched processes...")
+    global _dbus_daemon_proc, _anaconda_boss_proc, _process_pids
+    
+    # Terminate Anaconda Boss first (if running)
+    if _anaconda_boss_proc and _anaconda_boss_proc.poll() is None:
+        logging.info(f"Terminating Anaconda Boss (PID: {_anaconda_boss_proc.pid})...")
+        _anaconda_boss_proc.terminate()
+        try:
+            _anaconda_boss_proc.wait(timeout=5)
+            logging.info("Anaconda Boss terminated.")
+        except subprocess.TimeoutExpired:
+            logging.warning("Timeout waiting for Anaconda Boss termination, killing...")
+            _anaconda_boss_proc.kill()
+            
+    # Terminate D-Bus daemon (if running)
+    if _dbus_daemon_proc and _dbus_daemon_proc.poll() is None:
+        logging.info(f"Terminating D-Bus daemon (PID: {_dbus_daemon_proc.pid})...")
+        _dbus_daemon_proc.terminate()
+        try:
+            _dbus_daemon_proc.wait(timeout=5)
+            logging.info("D-Bus daemon terminated.")
+        except subprocess.TimeoutExpired:
+            logging.warning("Timeout waiting for D-Bus daemon termination, killing...")
+            _dbus_daemon_proc.kill()
+            
+    # Ensure any other tracked PIDs are killed (e.g., from dbus-launch)
+    for pid in _process_pids:
+        try:
+             if os.kill(pid, 0): # Check if PID exists
+                 logging.info(f"Sending SIGTERM to process PID: {pid}")
+                 os.kill(pid, signal.SIGTERM)
+                 # Optionally wait briefly or send SIGKILL after timeout
+        except OSError as e:
+             # Process likely already exited
+             logging.debug(f"Could not signal PID {pid} (may have already exited): {e}")
+        except Exception as e:
+             logging.error(f"Error terminating process PID {pid}: {e}")
+
+atexit.register(cleanup_processes) # Register cleanup function
 
 class CentrioInstallerApp(Adw.Application):
     """The main GTK application class."""
@@ -35,28 +86,135 @@ class CentrioInstallerApp(Adw.Application):
 
     def do_shutdown(self):
         """Called when the application is shutting down."""
-        # Ensure progress simulation timer is stopped if window exists
-        if self.win and hasattr(self.win, 'progress_page') and hasattr(self.win.progress_page, 'stop_simulation'):
-            logging.info("Stopping progress simulation on shutdown...") # Use logging
-            self.win.progress_page.stop_simulation()
-        # Call parent shutdown method
+        logging.info("Application shutdown requested.")
+        # Custom cleanup can go here if needed before atexit handler
         Adw.Application.do_shutdown(self)
 
-def main():
-    """Main function to initialize and run the application."""
+def launch_dbus_daemon():
+    """Starts a dbus-daemon, captures its address/PID, and sets environment."""
+    global _process_pids
+    logging.info("Attempting to launch D-Bus daemon...")
     try:
-        logging.info("Centrio Installer starting...") # Log start
-        Adw.init() # Initialize Adwaita
+        # Use --sh-syntax to easily parse output
+        # Use --fork to make it daemonize itself
+        # Use --print-address and --print-pid
+        cmd = ["dbus-daemon", "--session", "--fork", "--print-address=1", "--print-pid=1"]
+        # Alternatives: dbus-launch --sh-syntax can sometimes be simpler
+        # launch_cmd = ["dbus-launch", "--sh-syntax"]
+        
+        # For dbus-daemon, we need to capture stdout
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout, stderr = proc.communicate(timeout=10)
+        
+        if proc.returncode != 0:
+             raise RuntimeError(f"dbus-daemon command failed (rc={proc.returncode}): {stderr}")
+             
+        # Parse stdout (should contain address on first line, pid on second)
+        lines = stdout.strip().splitlines()
+        if len(lines) < 2:
+            raise RuntimeError(f"Unexpected output from dbus-daemon: {stdout}")
+            
+        dbus_address = lines[0].strip()
+        dbus_pid_str = lines[1].strip()
+        dbus_pid = int(dbus_pid_str)
+        
+        if not dbus_address or not dbus_address.startswith("unix:"):
+             raise RuntimeError(f"Invalid D-Bus address received: {dbus_address}")
+             
+        logging.info(f"Launched D-Bus daemon (PID: {dbus_pid}) at address: {dbus_address}")
+        os.environ["DBUS_SESSION_BUS_ADDRESS"] = dbus_address
+        _process_pids.append(dbus_pid) # Track PID for cleanup
+        return True, None # Success
+        
+    except FileNotFoundError:
+         err = "Error: dbus-daemon command not found. Cannot start session bus."
+         logging.critical(err)
+         return False, err
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, RuntimeError, ValueError) as e:
+         err = f"Error launching or parsing dbus-daemon output: {e}"
+         logging.critical(err)
+         return False, err
+    except Exception as e:
+        err = f"Unexpected error launching D-Bus daemon: {e}"
+        logging.critical(err, exc_info=True)
+        return False, err
+
+def launch_anaconda_boss():
+    """Launches the Anaconda Boss module as a subprocess."""
+    global _anaconda_boss_proc
+    logging.info("Attempting to launch Anaconda Boss module...")
+    # Adjust path as necessary
+    anaconda_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'ANACONDA'))
+    boss_script = os.path.join(anaconda_root, "pyanaconda", "modules", "boss", "__main__.py")
+    python_executable = sys.executable # Use the same python interpreter
+    
+    if not os.path.exists(boss_script):
+        err = f"Anaconda Boss script not found at: {boss_script}"
+        logging.critical(err)
+        return False, err
+        
+    # Ensure DBUS_SESSION_BUS_ADDRESS is in the environment
+    if "DBUS_SESSION_BUS_ADDRESS" not in os.environ:
+         err = "DBUS_SESSION_BUS_ADDRESS not set. Cannot launch Boss." 
+         logging.critical(err)
+         return False, err
+         
+    try:
+        cmd = [python_executable, boss_script]
+        logging.info(f"Launching Boss with command: {' '.join(cmd)}")
+        # Launch and don't wait for it
+        # Pass current environment (which includes DBUS_SESSION_BUS_ADDRESS)
+        _anaconda_boss_proc = subprocess.Popen(cmd, env=os.environ.copy(), 
+                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, # Capture output for logging
+                                               text=True)
+        logging.info(f"Anaconda Boss process launched (PID: {_anaconda_boss_proc.pid})")
+        # TODO: Optionally monitor the stdout/stderr of the Boss process in a thread?
+        return True, None
+    except Exception as e:
+        err = f"Failed to launch Anaconda Boss: {e}"
+        logging.critical(err, exc_info=True)
+        _anaconda_boss_proc = None
+        return False, err
+
+def main():
+    """Main function to initialize D-Bus, Anaconda, and run the application."""
+    global _dbus_daemon_proc, _anaconda_boss_proc
+    try:
+        logging.info("Centrio Installer starting...")
+        
+        # 1. Launch D-Bus Daemon
+        dbus_ok, dbus_err = launch_dbus_daemon()
+        if not dbus_ok:
+            # Show critical error to user? GTK isn't running yet.
+            print(f"FATAL: {dbus_err}", file=sys.stderr)
+            return 1
+            
+        # Allow D-Bus daemon time to initialize
+        import time
+        time.sleep(1) 
+        
+        # 2. Launch Anaconda Boss
+        boss_ok, boss_err = launch_anaconda_boss()
+        if not boss_ok:
+             print(f"FATAL: {boss_err}", file=sys.stderr)
+             # Cleanup D-Bus daemon before exiting
+             cleanup_processes()
+             return 1
+             
+        # Allow Boss time to start and register on D-Bus
+        time.sleep(2)
+             
+        # 3. Start GTK Application
+        Adw.init()
         app = CentrioInstallerApp()
         exit_status = app.run(sys.argv)
-        logging.info(f"Centrio Installer finished with exit status: {exit_status}") # Log end
+        logging.info(f"Centrio Installer finished with exit status: {exit_status}")
+        # atexit handler will call cleanup_processes
         return exit_status
+        
     except Exception as e:
-        # Log any unhandled exceptions before exiting
         logging.critical("Unhandled exception caused installer to crash!", exc_info=True)
-        # Optionally, show a critical error dialog to the user if possible
-        # (Might be hard if GTK itself crashed)
-        return 1 # Return a non-zero exit code for error
+        return 1
 
 if __name__ == '__main__':
     # Ensure the application exits with the correct status code
