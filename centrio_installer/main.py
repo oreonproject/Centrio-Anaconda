@@ -70,6 +70,58 @@ def cleanup_processes():
 
 atexit.register(cleanup_processes) # Register cleanup function
 
+# --- Restore D-Bus Config Creation (pointing to correct system path) ---
+
+def create_dbus_config():
+    """Creates the /tmp/centrio_dbus.conf file needed by the custom dbus-daemon."""
+    config_file_path = "/tmp/centrio_dbus.conf"
+    # Path identified by dnf provides
+    service_dir = "/usr/share/anaconda/dbus/services"
+    
+    # Check if the Anaconda D-Bus service directory exists 
+    if not os.path.isdir(service_dir):
+        logging.warning(f"Anaconda D-Bus service directory not found: {service_dir}. D-Bus services might not load correctly.")
+        # We should probably fail here if the dir is missing
+        return False
+        
+    config_content = f"""<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <type>session</type>
+  <keep_umask/>
+  <!-- Listen on a socket in /tmp for simplicity -->
+  <listen>unix:tmpdir=/tmp</listen> 
+  <!-- Point to Anaconda's actual D-Bus service file directory -->
+  <servicedir>{service_dir}</servicedir> 
+  <!-- Include standard session service directories too -->
+  <standard_session_servicedirs/> 
+  <!-- Basic policy allowing local connections -->
+  <policy context="default">
+    <allow send_destination="*" eavesdrop="false"/> 
+    <allow eavesdrop="false"/> <!-- Be restrictive on eavesdropping -->
+    <allow own="*"/>
+    <allow user="*"/> 
+  </policy>
+</busconfig>
+"""
+    
+    try:
+        # Ensure we remove the old file if it exists (needed when running as diff users)
+        if os.path.exists(config_file_path):
+            os.remove(config_file_path)
+        with open(config_file_path, "w") as f:
+            f.write(config_content)
+        logging.info(f"Successfully created D-Bus config file: {config_file_path} pointing to service dir: {service_dir}")
+        return True
+    except (IOError, OSError) as e:
+        logging.critical(f"Failed to write D-Bus config file {config_file_path}: {e}", exc_info=True)
+        return False
+    except Exception as e:
+        logging.critical(f"Unexpected error creating D-Bus config file {config_file_path}: {e}", exc_info=True)
+        return False
+
+# --- End D-Bus Config Creation ---
+
 class CentrioInstallerApp(Adw.Application):
     """The main GTK application class."""
     def __init__(self, **kwargs):
@@ -90,73 +142,41 @@ class CentrioInstallerApp(Adw.Application):
         # Custom cleanup can go here if needed before atexit handler
         Adw.Application.do_shutdown(self)
 
+# --- Restore D-Bus Daemon Launch (without PATH/PYTHONPATH mods) ---
 def launch_dbus_daemon():
     """Starts a dbus-daemon using a custom config file, captures its address/PID, and sets environment."""
     global _process_pids
     logging.info("Attempting to launch D-Bus daemon with custom config...")
     config_file = "/tmp/centrio_dbus.conf" # Path to the file we just created
     
-    # Ensure the config file exists
+    # Ensure the config file exists (create_dbus_config should have made it)
     if not os.path.isfile(config_file):
          err = f"D-Bus config file not found: {config_file}"
          logging.critical(err)
          return False, err
          
     try:
-        # --- Prepare Environment --- 
-        script_dir = os.path.dirname(__file__)
-        anaconda_root = os.path.abspath(os.path.join(script_dir, '..', 'ANACONDA'))
-        anaconda_scripts_dir = os.path.join(anaconda_root, 'scripts') # Path to scripts
-        
-        if not os.path.isdir(anaconda_scripts_dir):
-            raise RuntimeError(f"Anaconda scripts directory not found: {anaconda_scripts_dir}")
-            
-        # Remove XDG_DATA_DIRS manipulation - handled by config file's <servicedir>
-        # original_xdg_data_dirs = os.environ.get('XDG_DATA_DIRS', '')
-        # ... (removed related code)
-            
-        # Prepend Anaconda scripts dir to PATH so dbus-daemon finds start-module
-        original_path = os.environ.get('PATH', '')
-        if anaconda_scripts_dir not in original_path.split(':'):
-            new_path = f"{anaconda_scripts_dir}:{original_path}" if original_path else anaconda_scripts_dir
-            logging.info(f"Setting PATH to: {new_path}")
-            os.environ['PATH'] = new_path
-        else:
-             logging.info(f"Anaconda scripts dir already in PATH: {os.environ['PATH']}")
-             
-        # Ensure PYTHONPATH includes the Anaconda root for module imports by start-module
-        anaconda_pythonpath = anaconda_root # The dir containing pyanaconda
-        original_pythonpath = os.environ.get('PYTHONPATH', '')
-        if anaconda_pythonpath not in original_pythonpath.split(':'):
-             new_pythonpath = f"{anaconda_pythonpath}:{original_pythonpath}" if original_pythonpath else anaconda_pythonpath
-             logging.info(f"Setting PYTHONPATH to: {new_pythonpath}")
-             os.environ['PYTHONPATH'] = new_pythonpath
-        else:
-             logging.info(f"Anaconda root already in PYTHONPATH: {os.environ['PYTHONPATH']}")
-        # --- End Environment Prep ---
+        # --- Environment Prep Removed ---
+        # Rely on system environment for dbus-daemon
+        env = os.environ.copy() # Start with current env
             
         # Command using dbus-daemon with the custom config file
         cmd = [
             "dbus-daemon", 
             f"--config-file={config_file}",
-            # "--nofork", # Keep commented out, fork is needed
-            "--fork",   # Keep fork to daemonize
+            "--fork",
             "--print-address=1", 
             "--print-pid=1",
-            # "--session" # REMOVE this, as config file specifies type=session
         ]
         
         logging.info(f"Launching dbus-daemon with command: {' '.join(cmd)}")
         
-        # We still need to capture stdout for address/pid
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=os.environ.copy())
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env)
         stdout, stderr = proc.communicate(timeout=10)
         
         if proc.returncode != 0:
-             # Check stderr for clues if dbus-daemon fails with config
              raise RuntimeError(f"dbus-daemon command failed (rc={proc.returncode}): {stderr}")
              
-        # Parse stdout (should contain address on first line, pid on second)
         lines = stdout.strip().splitlines()
         if len(lines) < 2:
             raise RuntimeError(f"Unexpected output from dbus-daemon: {stdout}")
@@ -169,15 +189,13 @@ def launch_dbus_daemon():
              raise RuntimeError(f"Invalid D-Bus address received: {dbus_address}")
              
         logging.info(f"Launched D-Bus daemon (PID: {dbus_pid}) at address: {dbus_address}")
-        # Set the address for subsequent processes (like Anaconda Boss)
+        # Set the address for subsequent processes (like Anaconda Boss and UI connections)
         os.environ["DBUS_SESSION_BUS_ADDRESS"] = dbus_address
         
-        # Important: We don't own the dbus-daemon process directly anymore if it forks.
-        # We track the PID reported by dbus-daemon itself.
-        _process_pids.append(dbus_pid) 
-        # Do NOT store proc in _dbus_daemon_proc as it exits after fork.
+        _process_pids.append(dbus_pid)
+        # Don't store proc itself as it exits after fork 
         global _dbus_daemon_proc
-        _dbus_daemon_proc = None # Explicitly set to None as we don't manage it directly
+        _dbus_daemon_proc = None # Process is managed by PID via atexit
         
         return True, None # Success
         
@@ -187,49 +205,13 @@ def launch_dbus_daemon():
          return False, err
     except (subprocess.TimeoutExpired, subprocess.CalledProcessError, RuntimeError, ValueError) as e:
          err = f"Error launching or parsing dbus-daemon output: {e}"
-         logging.critical(err)
+         logging.critical(err, exc_info=True)
          return False, err
     except Exception as e:
         err = f"Unexpected error launching D-Bus daemon with config: {e}"
         logging.critical(err, exc_info=True)
-        return False, err
-
-def launch_anaconda_boss():
-    """Launches the Anaconda Boss module as a subprocess."""
-    global _anaconda_boss_proc
-    logging.info("Attempting to launch Anaconda Boss module...")
-    # Adjust path as necessary
-    anaconda_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'ANACONDA'))
-    boss_script = os.path.join(anaconda_root, "pyanaconda", "modules", "boss", "__main__.py")
-    python_executable = sys.executable # Use the same python interpreter
-    
-    if not os.path.exists(boss_script):
-        err = f"Anaconda Boss script not found at: {boss_script}"
-        logging.critical(err)
-        return False, err
-        
-    # Ensure DBUS_SESSION_BUS_ADDRESS is in the environment
-    if "DBUS_SESSION_BUS_ADDRESS" not in os.environ:
-         err = "DBUS_SESSION_BUS_ADDRESS not set. Cannot launch Boss." 
-         logging.critical(err)
-         return False, err
-         
-    try:
-        cmd = [python_executable, boss_script]
-        logging.info(f"Launching Boss with command: {' '.join(cmd)}")
-        # Launch and don't wait for it
-        # Pass current environment (which includes DBUS_SESSION_BUS_ADDRESS)
-        _anaconda_boss_proc = subprocess.Popen(cmd, env=os.environ.copy(), 
-                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, # Capture output for logging
-                                               text=True)
-        logging.info(f"Anaconda Boss process launched (PID: {_anaconda_boss_proc.pid})")
-        # TODO: Optionally monitor the stdout/stderr of the Boss process in a thread?
-        return True, None
-    except Exception as e:
-        err = f"Failed to launch Anaconda Boss: {e}"
-        logging.critical(err, exc_info=True)
-        _anaconda_boss_proc = None
-        return False, err
+        return False
+# --- End D-Bus Daemon Launch ---
 
 def main():
     """Main function to initialize D-Bus, Anaconda, and run the application."""
@@ -237,28 +219,23 @@ def main():
     try:
         logging.info("Centrio Installer starting...")
         
+        # 0. Create the D-Bus config file
+        if not create_dbus_config():
+             print("FATAL: Could not create D-Bus configuration file.", file=sys.stderr)
+             # Check logs for why create_dbus_config failed (e.g., service dir missing)
+             return 1
+             
         # 1. Launch D-Bus Daemon
         dbus_ok, dbus_err = launch_dbus_daemon()
         if not dbus_ok:
-            # Show critical error to user? GTK isn't running yet.
             print(f"FATAL: {dbus_err}", file=sys.stderr)
             return 1
             
-        # Allow D-Bus daemon time to initialize
+        # Allow D-Bus daemon and services time to initialize
         import time
-        time.sleep(1) 
-        
-        # 2. Launch Anaconda Boss
-        boss_ok, boss_err = launch_anaconda_boss()
-        if not boss_ok:
-             print(f"FATAL: {boss_err}", file=sys.stderr)
-             # Cleanup D-Bus daemon before exiting
-             cleanup_processes()
-             return 1
-             
-        # Allow Boss time to start and register on D-Bus
-        time.sleep(2)
-             
+        logging.info("Waiting for D-Bus services (including Boss) to activate...")
+        time.sleep(5) # Keep increased sleep duration
+
         # 3. Start GTK Application
         Adw.init()
         app = CentrioInstallerApp()
