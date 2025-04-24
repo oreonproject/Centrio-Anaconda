@@ -71,85 +71,101 @@ class BootloaderPage(BaseConfigurationPage):
             self.initial_fetch_done = True
 
     def _fetch_bootloader_data(self):
-        """Fetches current bootloader installation setting."""
+        """Fetches bootloader config (async via idle_add)."""
+        # Check proxy validity
         if not self.bootloader_proxy:
-             return False
-
-        enabled_status = True # Default
-        try:
-            # Fetch status - Assuming property InstallBootloader or method GetInstallBootloader()
-            enabled_status = self.bootloader_proxy.GetInstallBootloader() # Hypothetical
-            print(f"BootloaderPage: Fetched install status via D-Bus: {enabled_status}")
+            self.show_toast("Bootloader D-Bus service is not available.")
+            self._update_ui_with_settings(self.bootloader_enabled, success=False)
+            self.initial_fetch_done = True
+            return False
             
-        except DBusError as e:
+        fetched_enabled = False
+        fetched_location = None
+        success = False
+        try:
+            print("BootloaderPage: Fetching bootloader data via D-Bus...")
+            # Assuming properties: InstallBootloader (bool), BootloaderLocation (str)
+            fetched_enabled = self.bootloader_proxy.get_InstallBootloader()
+            fetched_location = self.bootloader_proxy.get_BootloaderLocation() 
+            print(f"BootloaderPage: Fetched - Enabled: {fetched_enabled}, Location: {fetched_location}")
+            success = True
+        except (DBusError, AttributeError) as e:
             print(f"ERROR: D-Bus error fetching bootloader data: {e}")
             self.show_toast(f"Error fetching bootloader data: {e}")
-            # Keep default
-        except AttributeError as e:
-             print(f"ERROR: D-Bus method/property not found: {e}. Check BootloaderInterface.")
-             self.show_toast(f"D-Bus call failed: {e}")
-             # Keep default
+            # Use defaults on error
+            fetched_enabled = self.bootloader_enabled 
+            fetched_location = "(unknown)"
         except Exception as e:
             print(f"ERROR: Unexpected error fetching bootloader data: {e}")
             self.show_toast("Unexpected error fetching bootloader data.")
-            # Keep default
+            fetched_enabled = self.bootloader_enabled
+            fetched_location = "(unknown)"
         finally:
-             self._update_ui_with_settings(enabled_status)
-             self.initial_fetch_done = True
-             
+            self._update_ui_with_settings(fetched_enabled, fetched_location, success)
+            self.initial_fetch_done = True
+            
         return False
-        
-    def _update_ui_with_settings(self, is_enabled):
-         """Updates the switch and enables UI."""
-         self.bootloader_enabled = bool(is_enabled)
-         self.enable_switch_row.set_active(self.bootloader_enabled)
-         self.enable_switch_row.set_sensitive(True)
-         self.complete_button.set_sensitive(True)
-         self.on_enable_toggled(self.enable_switch_row, None) # Update subtitle
 
-    def on_enable_toggled(self, switch, param):
-        self.bootloader_enabled = switch.get_active()
-        print(f"Bootloader install choice toggled: {'Install' if self.bootloader_enabled else 'Skip'}")
-        if self.bootloader_enabled:
-            self.enable_switch_row.set_subtitle("A bootloader (GRUB2) will be installed")
+    def _update_ui_with_settings(self, enabled, location=None, success=True):
+        """Updates the UI based on fetched settings."""
+        self.bootloader_enabled = enabled
+        self.enable_switch_row.set_active(self.bootloader_enabled)
+        
+        # Removed references to non-existent location_label
+        # if location:
+        #      self.location_label.set_text(f"Detected Location: {location}")
+        # else:
+        #      self.location_label.set_text("Location: (Not detected)")
+             
+        # Enable/disable UI based on success
+        can_proceed = success # Can always proceed, but might use defaults
+        self.enable_switch_row.set_sensitive(success) # Only allow toggle if fetch worked
+        self.complete_button.set_sensitive(True) # Always allow apply (might apply defaults)
+        
+        if not success:
+            self.enable_switch_row.set_subtitle("Failed to load current setting")
         else:
-            self.enable_switch_row.set_subtitle("Bootloader installation will be skipped (System may not be bootable!)")
+            self.enable_switch_row.set_subtitle("Install a bootloader on the selected disk")
+
+    def on_enable_toggled(self, switch_row, state):
+        """Handle the enable switch being toggled."""
+        self.bootloader_enabled = state
+        print(f"Bootloader install choice toggled: {'Install' if state else 'Do Not Install'}")
+        # Maybe trigger apply immediately or just update state?
+        # For now, just update state. Button click will apply.
 
     def apply_settings_and_return(self, button):
-        """Applies the bootloader setting via D-Bus."""
+        """Applies the bootloader settings via D-Bus."""
+        # Check proxy validity first
+        if not self.bootloader_proxy:
+            self.show_toast("Cannot apply bootloader settings: D-Bus service is not available.")
+            self.complete_button.set_sensitive(False)
+            return
+            
         if not self.initial_fetch_done:
+             # This shouldn't happen if button is sensitive, but check anyway
              self.show_toast("Still fetching initial configuration...")
              return
-             
-        mode_str = "Install" if self.bootloader_enabled else "Skip"
-        print(f"Applying Bootloader choice ({mode_str}) via D-Bus...")
+
+        enabled_state = self.enable_switch_row.get_active()
+        print(f"Applying Bootloader Setting (Install={enabled_state}) via D-Bus...")
         self.complete_button.set_sensitive(False)
 
-        if self.bootloader_proxy:
-            try:
-                # Call D-Bus method - Assuming SetInstallBootloader(boolean)
-                self.bootloader_proxy.SetInstallBootloader(self.bootloader_enabled) # Hypothetical
-                print(f"Bootloader choice '{mode_str}' applied via D-Bus.")
-                self.show_toast(f"Bootloader choice confirmed: {mode_str}")
-                
-                config_values = {"install_bootloader": self.bootloader_enabled}
-                super().mark_complete_and_return(button, config_values=config_values)
-
-            except DBusError as e:
-                print(f"ERROR: D-Bus error applying bootloader setting: {e}")
-                self.show_toast(f"Error applying bootloader setting: {e}")
-                self.complete_button.set_sensitive(True)
-            except AttributeError as e:
-                 print(f"ERROR: D-Bus method SetInstallBootloader not found: {e}. Check BootloaderInterface.")
-                 self.show_toast(f"Failed to apply bootloader setting (D-Bus error): {e}")
-                 self.complete_button.set_sensitive(True)
-            except Exception as e:
-                print(f"ERROR: Unexpected error applying bootloader setting: {e}")
-                self.show_toast(f"Unexpected error applying bootloader setting: {e}")
-                self.complete_button.set_sensitive(True)
-        else:
-            self.show_toast("Cannot apply bootloader setting: D-Bus connection not available.")
-            # Mark complete anyway?
-            print("Marking complete with chosen bootloader setting despite D-Bus failure.")
-            config_values = {"install_bootloader": self.bootloader_enabled}
+        try:
+            # Call the appropriate method/property setter
+            # Assuming SetInstallBootloader(bool)
+            self.bootloader_proxy.SetInstallBootloader(enabled_state)
+            print("Bootloader setting successfully applied via D-Bus.")
+            self.show_toast(f"Bootloader setting (Install={enabled_state}) applied.")
+            
+            config_values = {"install_bootloader": enabled_state}
             super().mark_complete_and_return(button, config_values=config_values)
+            
+        except (DBusError, AttributeError) as e:
+            print(f"ERROR: D-Bus error setting bootloader option: {e}")
+            self.show_toast(f"Error setting bootloader option: {e}")
+            self.complete_button.set_sensitive(True) # Re-enable on error
+        except Exception as e:
+            print(f"ERROR: Unexpected error applying bootloader setting: {e}")
+            self.show_toast(f"Unexpected error applying bootloader setting: {e}")
+            self.complete_button.set_sensitive(True) # Re-enable on error

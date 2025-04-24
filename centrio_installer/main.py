@@ -234,7 +234,7 @@ def main():
         # Allow D-Bus daemon and services time to initialize
         import time
         logging.info("Waiting for D-Bus services (including Boss) to activate...")
-        time.sleep(5) # Keep increased sleep duration
+        time.sleep(20) # Significantly increased sleep duration
 
         # 3. Start GTK Application
         Adw.init()

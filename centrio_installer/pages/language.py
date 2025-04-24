@@ -68,110 +68,110 @@ class LanguagePage(BaseConfigurationPage):
             self.initial_fetch_done = True
 
     def _fetch_locale_data(self):
-        """Fetches current locale from D-Bus proxy."""
+        """Fetches available locales and current setting (async via idle_add)."""
+        # Check proxy validity
         if not self.localization_proxy:
-             return False 
+            self.show_toast("Localization D-Bus service is not available.")
+            self._update_ui_with_locales(self.available_locales, None, success=False) # Use fallback
+            self.initial_fetch_done = True
+            return False
 
-        current_locale_code = None
+        fetched_locales = []
+        current_locale = None
+        success = False
         try:
-            # Fetch the current locale using the correct property name
-            current_locale_code = self.localization_proxy.get_Language() # Corrected call
-            print(f"LanguagePage: Fetched current locale via D-Bus: {current_locale_code}")
-
-            # Available locales still come from utils, not D-Bus
-            available_locales_dict = self.available_locales 
-
-        except DBusError as e:
+            print("LanguagePage: Fetching locale data via D-Bus...")
+            # Assuming ListLocales() -> list[str]
+            fetched_locales = self.localization_proxy.ListLocales()
+            # Assuming Language property -> str
+            current_locale = self.localization_proxy.get_Language()
+            print(f"LanguagePage: Fetched locales: {len(fetched_locales)}, current: {current_locale}")
+            success = True
+        except (DBusError, AttributeError) as e: 
             print(f"ERROR: D-Bus error fetching locale data: {e}")
             self.show_toast(f"Error fetching locale data: {e}")
-            available_locales_dict = self.available_locales # Use fallback
-        except AttributeError as e:
-             print(f"ERROR: D-Bus property Language not found: {e}.") # Updated error message
-             self.show_toast(f"D-Bus call failed: {e}")
-             available_locales_dict = self.available_locales # Use fallback
+            fetched_locales = self.available_locales # Use fallback
+            current_locale = None # Cannot determine current
         except Exception as e:
             print(f"ERROR: Unexpected error fetching locale data: {e}")
             self.show_toast("Unexpected error fetching locale data.")
-            available_locales_dict = self.available_locales # Use fallback
+            fetched_locales = self.available_locales
+            current_locale = None
         finally:
-             # Update UI with fetched data (or fallback)
-             # We pass the locally generated dict here, as D-Bus doesn't provide the list
-             self._update_ui_with_locales(available_locales_dict, current_locale_code)
-             self.initial_fetch_done = True
-             
-        return False # Stop GLib.idle_add
+            self._update_ui_with_locales(fetched_locales, current_locale, success)
+            self.initial_fetch_done = True
         
-    def _update_ui_with_locales(self, locales_dict, current_code):
-         """Updates the ComboRow model and selection."""
-         # Sort by display name for UI friendliness
-         self.available_locales = dict(sorted(locales_dict.items(), key=lambda item: item[1]))
-         self.locale_codes = list(self.available_locales.keys())
-         
-         model = Gtk.StringList.new(self.locale_codes)
-         self.locale_row.set_model(model)
-         
-         # TODO: Use an expression to show display names from self.available_locales[code]
-         # if Gtk version supports it well. For now, dropdown shows codes.
-         
-         selected_idx = -1
-         if current_code and current_code in self.locale_codes:
-             try:
-                 selected_idx = self.locale_codes.index(current_code)
-             except ValueError:
-                 pass
-         
-         if selected_idx >= 0:
+        return False
+
+    def _update_ui_with_locales(self, locales, current_locale, success=True):
+        """Populates the locale list and selects the current one."""
+        # Store sorted list of available locales
+        self.available_locales = sorted(locales)
+        
+        # Use simple StringList with locale codes for the model
+        model = Gtk.StringList.new(self.available_locales)
+
+        self.locale_row.set_model(model)
+        
+        # Select current locale if found
+        selected_idx = -1
+        if current_locale and current_locale in self.available_locales:
+            try:
+                selected_idx = self.available_locales.index(current_locale)
+            except ValueError:
+                pass
+
+        if selected_idx >= 0:
              self.locale_row.set_selected(selected_idx)
-         elif self.locale_codes:
+        elif self.available_locales: # Default to first if current not found
              self.locale_row.set_selected(0)
-             
-         self.locale_row.set_sensitive(bool(self.locale_codes))
-         self.complete_button.set_sensitive(bool(self.locale_codes))
-         if not self.locale_codes:
-              self.locale_row.set_subtitle("No locales available")
-              self.complete_button.set_sensitive(False)
+
+        # Enable/disable UI based on success
+        can_proceed = success and len(model) > 0
+        self.locale_row.set_sensitive(can_proceed)
+        self.complete_button.set_sensitive(can_proceed)
+        if not can_proceed:
+            subtitle = "Failed to load locales" if not success else "No locales available"
+            self.locale_row.set_subtitle(subtitle)
+        else:
+            self.locale_row.set_subtitle(None) # Clear subtitle
 
     def apply_settings_and_return(self, button):
-        """Applies the selected system locale via D-Bus."""
+        """Applies the selected locale via D-Bus."""
+        # Check proxy validity first
+        if not self.localization_proxy:
+            self.show_toast("Cannot apply language: Localization D-Bus service is not available.")
+            self.complete_button.set_sensitive(False)
+            return
+            
         if not self.initial_fetch_done:
             self.show_toast("Still fetching initial configuration...")
             return
-            
+
         selected_idx = self.locale_row.get_selected()
-        if not self.locale_codes or selected_idx < 0 or selected_idx >= len(self.locale_codes):
-             self.show_toast("Invalid locale selection.")
-             return
-             
-        selected_locale = self.locale_codes[selected_idx]
+        if not self.available_locales or selected_idx < 0 or selected_idx >= len(self.available_locales):
+            self.show_toast("Please select a language.")
+            return
+
+        selected_locale = self.available_locales[selected_idx] # Get locale code from list
+
+        print(f"Applying Language '{selected_locale}' via D-Bus...")
+        self.complete_button.set_sensitive(False)
+
+        try:
+            # Assuming SetLanguage(locale_code)
+            self.localization_proxy.SetLanguage(selected_locale)
+            print("Language successfully set via D-Bus.")
+            self.show_toast(f"Language '{selected_locale}' applied.")
             
-        print(f"Applying System Locale '{selected_locale}' via D-Bus...")
-        self.complete_button.set_sensitive(False) 
-        
-        if self.localization_proxy:
-            try:
-                # Call the SetLanguage method on the D-Bus proxy (Corrected method name)
-                self.localization_proxy.SetLanguage(selected_locale)
-                print("System locale successfully set via D-Bus.")
-                self.show_toast(f"System locale '{selected_locale}' applied.")
-                
-                config_values = {"locale": selected_locale}
-                super().mark_complete_and_return(button, config_values=config_values)
-                
-            except DBusError as e:
-                print(f"ERROR: D-Bus error setting locale: {e}")
-                self.show_toast(f"Error setting locale: {e}")
-                self.complete_button.set_sensitive(True) 
-            except AttributeError as e:
-                 print(f"ERROR: D-Bus method SetLanguage not found: {e}. Check LocalizationInterface.") # Updated error
-                 self.show_toast(f"Failed to apply locale (D-Bus error): {e}")
-                 self.complete_button.set_sensitive(True)
-            except Exception as e:
-                print(f"ERROR: Unexpected error applying system locale: {e}")
-                self.show_toast(f"Unexpected error setting system locale: {e}")
-                self.complete_button.set_sensitive(True) 
-        else:
-            self.show_toast("Cannot apply locale: D-Bus connection not available.")
-            # Mark complete with selected value anyway?
-            print("Marking complete with chosen locale despite D-Bus failure.")
-            config_values = {"locale": selected_locale}
-            super().mark_complete_and_return(button, config_values=config_values) 
+            config_values = {"language": selected_locale}
+            super().mark_complete_and_return(button, config_values=config_values)
+            
+        except (DBusError, AttributeError) as e: 
+            print(f"ERROR: D-Bus error setting language: {e}")
+            self.show_toast(f"Error setting language: {e}")
+            self.complete_button.set_sensitive(True) # Re-enable on error
+        except Exception as e:
+            print(f"ERROR: Unexpected error setting language: {e}")
+            self.show_toast(f"Unexpected error setting language: {e}")
+            self.complete_button.set_sensitive(True) # Re-enable on error 

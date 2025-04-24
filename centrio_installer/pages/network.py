@@ -83,82 +83,86 @@ class NetworkPage(BaseConfigurationPage):
 
     def _fetch_initial_hostname(self):
         """Fetches the hostname from the D-Bus proxy (called via idle_add)."""
+        # Check proxy validity first
         if not self.network_proxy:
-             return False # Should not happen if called correctly
+             self.show_toast("Network D-Bus service is not available.")
+             self._update_ui_with_hostname(self.default_hostname, success=False)
+             self.initial_hostname_fetch_done = True # Mark done even on failure
+             return False # Stop GLib.idle_add
+             
+        current_hostname = None
+        success = False
         try:
             # Call the Hostname property getter
-            # Note: Properties in dasbus are accessed like methods
             current_hostname = self.network_proxy.get_Hostname() 
             print(f"NetworkPage: Fetched hostname via D-Bus: {current_hostname}")
-            if current_hostname:
-                 self.hostname_row.set_text(current_hostname)
-            else:
-                 self.hostname_row.set_text(self.default_hostname) # Fallback if empty
-        except DBusError as e:
+            success = True
+        except (DBusError, AttributeError) as e: 
             print(f"ERROR: D-Bus error fetching hostname: {e}")
             self.show_toast(f"Error fetching hostname: {e}")
-            self.hostname_row.set_text(self.default_hostname) # Use default on error
+            current_hostname = self.default_hostname # Use default on error
         except Exception as e:
             print(f"ERROR: Unexpected error fetching hostname: {e}")
             self.show_toast(f"Unexpected error fetching hostname.")
-            self.hostname_row.set_text(self.default_hostname)
+            current_hostname = self.default_hostname
         finally:
-             # Enable widgets regardless of success/failure after fetch attempt
-             self.hostname_row.set_sensitive(True)
-             self.complete_button.set_sensitive(True)
+             # Update UI regardless of success/failure after fetch attempt
+             self._update_ui_with_hostname(current_hostname, success)
              self.initial_hostname_fetch_done = True
              
         return False # Prevents GLib.idle_add from repeating the call
 
-    # Updated apply method
-    def apply_settings_and_return(self, button): 
-        """Validates hostname, applies it via D-Bus, and marks page complete."""
-        if not self.initial_hostname_fetch_done:
-             self.show_toast("Still fetching initial configuration...")
-             return
-             
-        hostname = self.hostname_row.get_text().strip()
-        if not hostname:
-             self.show_toast("Hostname cannot be empty.")
-             return
-        
-        # Basic validation (similar to before)
-        import re
-        if not re.match(r"^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?))*$", hostname) or hostname.isdigit():
-            self.show_toast("Invalid hostname format. Use letters, numbers, hyphens. Max 63 chars.")
-            return
-             
-        print(f"Applying hostname '{hostname}' via D-Bus...")
-        self.complete_button.set_sensitive(False) # Disable while applying
-        
-        if self.network_proxy:
-            try:
-                # Call the SetHostname method on the D-Bus proxy
-                self.network_proxy.SetHostname(hostname)
-                print("Hostname successfully set via D-Bus.")
-                self.show_toast(f"Hostname '{hostname}' applied.")
-                
-                # Prepare config values for main window state (optional, maybe just hostname)
-                config_values = {"hostname": hostname}
-                # Mark complete and return
-                super().mark_complete_and_return(button, config_values=config_values)
-                
-            except DBusError as e:
-                print(f"ERROR: D-Bus error setting hostname: {e}")
-                self.show_toast(f"Error setting hostname: {e}")
-                self.complete_button.set_sensitive(True) # Re-enable on error
-            except Exception as e:
-                print(f"ERROR: Unexpected error setting hostname: {e}")
-                self.show_toast("Unexpected error setting hostname.")
-                self.complete_button.set_sensitive(True)
+    def _update_ui_with_hostname(self, hostname, success=True):
+        """Updates the hostname entry and enables/disables UI."""
+        if hostname:
+             self.hostname_row.set_text(hostname)
         else:
-            # Case where D-Bus wasn't available initially
-            self.show_toast("Cannot apply hostname: D-Bus connection not available.")
-            # Even if D-Bus failed, let's mark complete with the chosen value 
-            # so it's available for kickstart generation later? Or should we fail?
-            # For now, mark complete but show error.
-            print("Marking complete with chosen hostname despite D-Bus failure.")
-            config_values = {"hostname": hostname}
+             self.hostname_row.set_text(self.default_hostname) # Fallback if empty
+             
+        # Enable widgets 
+        can_proceed = success # Only allow apply if fetch worked
+        self.hostname_row.set_sensitive(True) # Always allow editing, even if fetch failed
+        self.complete_button.set_sensitive(can_proceed)
+        if not success:
+            # Adw.EntryRow does not have subtitle, show toast instead?
+            self.show_toast("Failed to load current hostname from backend.")
+        else:
+            self.hostname_row.set_subtitle("") # Clear subtitle
+
+    def apply_settings_and_return(self, button):
+        """Validates and applies hostname setting via D-Bus."""
+        # Check proxy validity first
+        if not self.network_proxy:
+            self.show_toast("Cannot apply hostname: Network D-Bus service is not available.")
+            self.complete_button.set_sensitive(False)
+            return
+            
+        if not self.initial_hostname_fetch_done:
+            self.show_toast("Still fetching initial configuration...")
+            return
+
+        new_hostname = self.hostname_row.get_text().strip()
+        if not new_hostname: # Basic validation
+            self.show_toast("Hostname cannot be empty.")
+            return
+            
+        print(f"Applying Hostname '{new_hostname}' via D-Bus...")
+        self.complete_button.set_sensitive(False)
+
+        try:
+            # Call the SetHostname method (or property setter)
+            self.network_proxy.SetHostname(new_hostname) 
+            print("Hostname successfully set via D-Bus.")
+            self.show_toast(f"Hostname '{new_hostname}' applied.")
+            
+            config_values = {"hostname": new_hostname}
             super().mark_complete_and_return(button, config_values=config_values)
-            # Keep button disabled? Or re-enable?
-            # self.complete_button.set_sensitive(True) 
+            
+        except (DBusError, AttributeError) as e: 
+            print(f"ERROR: D-Bus error setting hostname: {e}")
+            self.show_toast(f"Error setting hostname: {e}")
+            self.complete_button.set_sensitive(True) # Re-enable on error
+        except Exception as e:
+            print(f"ERROR: Unexpected error setting hostname: {e}")
+            self.show_toast(f"Unexpected error setting hostname: {e}")
+            self.complete_button.set_sensitive(True) # Re-enable on error 
