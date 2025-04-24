@@ -15,7 +15,7 @@ try:
     from dasbus.error import DBusError
     dbus_available = True
 except ImportError:
-    dasbus = None 
+    dasbus = None
     DBusError = Exception # Placeholder
     dbus_available = False
     print("WARNING: dasbus library not found. D-Bus communication will be disabled.")
@@ -23,51 +23,27 @@ except ImportError:
 # --- Timezone Helpers (Simulated from pyanaconda.timezone) ---
 # In a real integration, import these from pyanaconda.timezone
 # For now, provide dummy implementations
-try:
-    import pytz
-    pytz_available = True
-except ImportError:
-    pytz = None
-    pytz_available = False
-    print("WARNING: pytz not found. Timezone list will be minimal.")
-
-def ana_get_all_regions_and_timezones():
-    """Placeholder for pyanaconda.timezone.get_all_regions_and_timezones."""
-    if pytz_available:
-        # Basic simulation using pytz common timezones
-        try:
-            return sorted(pytz.common_timezones)
-        except Exception as e:
-             print(f"Error getting pytz timezones: {e}")
-             return ["UTC", "GMT"]
-    else:
-        # Minimal fallback
-        return ["UTC", "GMT", "America/New_York", "Europe/London", "Asia/Tokyo"]
 
 def ana_get_keyboard_layouts():
     """Fetches available console keyboard layouts using localectl."""
     print("Fetching keyboard layouts using localectl...")
+    layouts = []
     try:
-        # Get console keymaps
-        result = subprocess.run(["localectl", "list-keymaps"], 
-                                capture_output=True, text=True, check=True)
-        keymaps = sorted([line for line in result.stdout.split('\n') if line])
-        print(f"  Found {len(keymaps)} console keymaps.")
-        
-        # TODO: Also fetch X11 layouts/variants/options if needed for a more detailed UI
-        # result_x11 = subprocess.run(["localectl", "list-x11-keymap-layouts"], ...)
-        
-        # Return console keymaps for now for simplicity
-        return keymaps if keymaps else ["us"] # Fallback
+        # Use localectl list-keymaps
+        result = subprocess.run(['localectl', 'list-keymaps'], capture_output=True, text=True, check=True)
+        layouts = result.stdout.strip().split('\n')
+        print(f"Found {len(layouts)} keyboard layouts.")
     except FileNotFoundError:
-        print("ERROR: localectl command not found. Using fallback layouts.")
-        return ["us", "gb", "de", "fr"] # Fallback list
+        print("ERROR: 'localectl' command not found. Cannot list keymaps.")
+        # Provide minimal fallback data
+        layouts = ['us', 'uk', 'de', 'fr', 'es']
+        print("Using fallback keyboard layout data.")
     except subprocess.CalledProcessError as e:
-        print(f"ERROR: localectl list-keymaps failed: {e}. Using fallback layouts.")
-        return ["us", "gb", "de", "fr"]
-    except Exception as e:
-        print(f"ERROR: Unexpected error fetching keymaps: {e}. Using fallback layouts.")
-        return ["us", "gb", "de", "fr"]
+        print(f"ERROR: 'localectl list-keymaps' failed: {e}")
+        # Provide minimal fallback data
+        layouts = ['us', 'uk', 'de', 'fr', 'es']
+        print("Using fallback keyboard layout data.")
+    return layouts
 
 def ana_get_available_locales():
     """Fetches available locales using localectl."""
@@ -163,15 +139,10 @@ def get_anaconda_bus():
         return None
         
     if _anaconda_bus is None:
-        # Remove logic checking for custom address file/env var
-        # Rely on dasbus finding the address via standard env var
         try:
             print(f"Connecting to session D-Bus (expecting DBUS_SESSION_BUS_ADDRESS)...")
-            # Use standard SessionMessageBus
             _anaconda_bus = dasbus.connection.SessionMessageBus()
-            # Verify connection (optional, but good practice)
-            _anaconda_bus.dbus.Hello()
-            print("Successfully connected to session D-Bus.")
+            print("Successfully connected to session D-Bus (connection object created).")
         except DBusError as e:
             print(f"ERROR: Failed to connect to session D-Bus: {e}")
             _anaconda_bus = None

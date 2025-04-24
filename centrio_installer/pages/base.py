@@ -15,6 +15,14 @@ except ImportError:
     get_dbus_proxy = None # Define as None if utils fails
     print("Warning: Failed to import D-Bus utilities (utils.py). D-Bus functionality will be limited.")
 
+# D-Bus imports and utils
+# from ..constants import ANACONDA_BUS_NAME, ANACONDA_OBJECT_PATH, ANACONDA_INTERFACE # Remove this line
+
+import time
+from collections import namedtuple # Import namedtuple
+
+# Define a namedtuple for service information
+ServiceInfo = namedtuple("ServiceInfo", ["name", "object_path", "interface_name"])
 
 class BaseConfigurationPage(Adw.PreferencesPage):
     """Base class for configuration pages.

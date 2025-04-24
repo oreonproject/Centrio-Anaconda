@@ -11,6 +11,7 @@ from gi.repository import Gtk, Adw, GLib # Added GLib
 # Import D-Bus utils and constants
 from .base import BaseConfigurationPage, dbus_available, DBusError, get_dbus_proxy
 from ..constants import LOCALIZATION_SERVICE, LOCALIZATION_OBJECT_PATH, LOCALIZATION_INTERFACE
+from ..utils import ana_get_available_locales # Keep locale list getter
 
 class LanguagePage(BaseConfigurationPage):
     def __init__(self, main_window, overlay_widget, **kwargs):
@@ -19,7 +20,7 @@ class LanguagePage(BaseConfigurationPage):
         
         self.localization_proxy = None
         # Use dict {code: display_name} for available locales
-        self.available_locales = {"en_US.UTF-8": "English (US)"} # Default fallback
+        self.available_locales = ana_get_available_locales()
         self.locale_codes = list(self.available_locales.keys()) # Codes for model
         self.initial_fetch_done = False
 
@@ -27,9 +28,9 @@ class LanguagePage(BaseConfigurationPage):
         lang_group = Adw.PreferencesGroup(title="System Locale")
         self.add(lang_group)
         
-        # Model needs codes, Expression for display name
-        self.locale_row = Adw.ComboRow(title="Locale", model=Gtk.StringList.new([]))
-        # We will set the model and potentially an expression after fetching data
+        # Model uses the list populated above
+        model = Gtk.StringList.new(self.locale_codes)
+        self.locale_row = Adw.ComboRow(title="Locale", model=model)
         lang_group.add(self.locale_row)
 
         button_group = Adw.PreferencesGroup()
@@ -39,7 +40,7 @@ class LanguagePage(BaseConfigurationPage):
         self.complete_button.set_margin_top(24)
         self.complete_button.add_css_class("suggested-action")
         self.complete_button.connect("clicked", self.apply_settings_and_return)
-        # Start insensitive
+        # Start insensitive until fetch completes
         self.complete_button.set_sensitive(False)
         self.locale_row.set_sensitive(False)
         button_group.add(self.complete_button)
@@ -67,50 +68,25 @@ class LanguagePage(BaseConfigurationPage):
             self.initial_fetch_done = True
 
     def _fetch_locale_data(self):
-        """Fetches available locales and current locale from D-Bus proxy."""
+        """Fetches current locale from D-Bus proxy."""
         if not self.localization_proxy:
              return False 
 
-        available_locales_dict = {} # {code: display_name}
         current_locale_code = None
         try:
-            # Fetch available locales
-            # Assuming GetAvailableLocales() returns a list or dict
-            locales_data = self.localization_proxy.GetAvailableLocales()
-            # Adapt based on actual return type (list of strings, list of tuples, dict)
-            if isinstance(locales_data, dict):
-                 available_locales_dict = locales_data
-            elif isinstance(locales_data, (list, tuple)):
-                 # Assume list of strings (codes) for now
-                 # TODO: Ideally, Anaconda provides display names too.
-                 # If only codes, generate basic display names.
-                 for code in locales_data:
-                     parts = code.split('.')[0].split('_')
-                     lang = parts[0]
-                     country = f"({parts[1]})" if len(parts) > 1 else ""
-                     display_name = f"{lang.capitalize()} {country}".strip() or code
-                     available_locales_dict[code] = display_name
-            else:
-                 print(f"Warning: Received unexpected format for available locales: {type(locales_data)}")
-                 available_locales_dict = self.available_locales # Use fallback
-                 
-            print(f"LanguagePage: Fetched {len(available_locales_dict)} locales via D-Bus.")
-            
-            # Fetch the current locale
-            # Assuming a property like Locale or GetLocale()
-            current_locale_code = self.localization_proxy.GetLocale()
+            # Fetch the current locale using the correct property name
+            current_locale_code = self.localization_proxy.get_Language() # Corrected call
             print(f"LanguagePage: Fetched current locale via D-Bus: {current_locale_code}")
 
-            if not available_locales_dict:
-                 available_locales_dict = self.available_locales # Use fallback
-                 print("Warning: D-Bus returned empty locale list, using fallback.")
+            # Available locales still come from utils, not D-Bus
+            available_locales_dict = self.available_locales 
 
         except DBusError as e:
             print(f"ERROR: D-Bus error fetching locale data: {e}")
             self.show_toast(f"Error fetching locale data: {e}")
             available_locales_dict = self.available_locales # Use fallback
         except AttributeError as e:
-             print(f"ERROR: D-Bus method/property not found: {e}. Check LocalizationInterface.")
+             print(f"ERROR: D-Bus property Language not found: {e}.") # Updated error message
              self.show_toast(f"D-Bus call failed: {e}")
              available_locales_dict = self.available_locales # Use fallback
         except Exception as e:
@@ -119,6 +95,7 @@ class LanguagePage(BaseConfigurationPage):
             available_locales_dict = self.available_locales # Use fallback
         finally:
              # Update UI with fetched data (or fallback)
+             # We pass the locally generated dict here, as D-Bus doesn't provide the list
              self._update_ui_with_locales(available_locales_dict, current_locale_code)
              self.initial_fetch_done = True
              
@@ -148,8 +125,8 @@ class LanguagePage(BaseConfigurationPage):
          elif self.locale_codes:
              self.locale_row.set_selected(0)
              
-         self.locale_row.set_sensitive(True)
-         self.complete_button.set_sensitive(True)
+         self.locale_row.set_sensitive(bool(self.locale_codes))
+         self.complete_button.set_sensitive(bool(self.locale_codes))
          if not self.locale_codes:
               self.locale_row.set_subtitle("No locales available")
               self.complete_button.set_sensitive(False)
@@ -172,8 +149,8 @@ class LanguagePage(BaseConfigurationPage):
         
         if self.localization_proxy:
             try:
-                # Call the SetLocale method on the D-Bus proxy
-                self.localization_proxy.SetLocale(selected_locale)
+                # Call the SetLanguage method on the D-Bus proxy (Corrected method name)
+                self.localization_proxy.SetLanguage(selected_locale)
                 print("System locale successfully set via D-Bus.")
                 self.show_toast(f"System locale '{selected_locale}' applied.")
                 
@@ -185,7 +162,7 @@ class LanguagePage(BaseConfigurationPage):
                 self.show_toast(f"Error setting locale: {e}")
                 self.complete_button.set_sensitive(True) 
             except AttributeError as e:
-                 print(f"ERROR: D-Bus method SetLocale not found: {e}. Check LocalizationInterface.")
+                 print(f"ERROR: D-Bus method SetLanguage not found: {e}. Check LocalizationInterface.") # Updated error
                  self.show_toast(f"Failed to apply locale (D-Bus error): {e}")
                  self.complete_button.set_sensitive(True)
             except Exception as e:

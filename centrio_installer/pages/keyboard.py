@@ -11,20 +11,22 @@ from gi.repository import Gtk, Adw, GLib # Added GLib
 # Import D-Bus utils and constants
 from .base import BaseConfigurationPage, dbus_available, DBusError, get_dbus_proxy
 from ..constants import LOCALIZATION_SERVICE, LOCALIZATION_OBJECT_PATH, LOCALIZATION_INTERFACE
+from ..utils import ana_get_keyboard_layouts # Keep layout list getter
 
 class KeyboardPage(BaseConfigurationPage):
     def __init__(self, main_window, overlay_widget, **kwargs):
         super().__init__(title="Keyboard Layout", subtitle="Select your keyboard layout", main_window=main_window, overlay_widget=overlay_widget, **kwargs)
         
         self.localization_proxy = None
-        self.layout_list = ["us"] # Default fallback
+        self.layout_list = ana_get_keyboard_layouts()
         self.initial_fetch_done = False
 
         # --- UI Setup --- 
         key_group = Adw.PreferencesGroup()
         self.add(key_group)
         # Model will be populated after fetching data
-        self.layout_row = Adw.ComboRow(title="Keyboard Layout", model=Gtk.StringList.new([]))
+        model = Gtk.StringList.new(self.layout_list)
+        self.layout_row = Adw.ComboRow(title="Keyboard Layout", model=model)
         key_group.add(self.layout_row)
         
         test_row = Adw.ActionRow(title="Test your keyboard settings")
@@ -77,34 +79,19 @@ class KeyboardPage(BaseConfigurationPage):
         available_layouts = []
         current_layout = None
         try:
-            # Fetch available keyboard layouts
-            # Assuming a method like GetAvailableKeyboardLayouts() exists
-            # The actual method name might differ, check LocalizationInterface
-            available_layouts = self.localization_proxy.GetAvailableKeyboardLayouts()
-            print(f"KeyboardPage: Fetched {len(available_layouts)} layouts via D-Bus.")
+            # Available layouts still come from utils
+            available_layouts = self.layout_list
             
-            # Fetch the current keyboard layout
-            # Assuming a property or method like KeyboardLayout or GetKeyboardLayout()
-            current_layout_struct = self.localization_proxy.GetKeyboard()
-            # The structure might be complex, e.g., ("us", "", "") for layout, variant, options
-            # Extract the primary layout part
-            if isinstance(current_layout_struct, (list, tuple)) and len(current_layout_struct) > 0:
-                 current_layout = current_layout_struct[0]
-                 print(f"KeyboardPage: Fetched current layout via D-Bus: {current_layout}")
-            else:
-                 print(f"KeyboardPage: Received unexpected format for current layout: {current_layout_struct}")
-                 current_layout = None # Fallback if format is wrong
-
-            if not available_layouts:
-                 available_layouts = self.layout_list # Use fallback if D-Bus returns empty
-                 print("Warning: D-Bus returned empty layout list, using fallback.")
+            # Fetch the current VC keyboard layout using the correct property
+            current_layout = self.localization_proxy.get_VirtualConsoleKeymap() # Corrected call
+            print(f"KeyboardPage: Fetched current VC keymap via D-Bus: {current_layout}")
 
         except DBusError as e:
             print(f"ERROR: D-Bus error fetching keyboard data: {e}")
             self.show_toast(f"Error fetching keyboard data: {e}")
             available_layouts = self.layout_list # Use fallback
         except AttributeError as e:
-             print(f"ERROR: D-Bus method/property not found: {e}. Check LocalizationInterface definition.")
+             print(f"ERROR: D-Bus property VirtualConsoleKeymap not found: {e}.") # Updated error
              self.show_toast(f"D-Bus call failed: {e}")
              available_layouts = self.layout_list # Use fallback
         except Exception as e:
@@ -120,7 +107,7 @@ class KeyboardPage(BaseConfigurationPage):
         
     def _update_ui_with_layouts(self, layouts, current_layout):
          """Updates the ComboRow model and selection."""
-         self.layout_list = sorted(layouts) # Store sorted list
+         self.layout_list = sorted(layouts)
          model = Gtk.StringList.new(self.layout_list)
          self.layout_row.set_model(model)
          
@@ -137,8 +124,8 @@ class KeyboardPage(BaseConfigurationPage):
              self.layout_row.set_selected(0)
              
          # Enable UI elements
-         self.layout_row.set_sensitive(True)
-         self.complete_button.set_sensitive(True)
+         self.layout_row.set_sensitive(bool(self.layout_list))
+         self.complete_button.set_sensitive(bool(self.layout_list))
          if not self.layout_list:
               self.layout_row.set_subtitle("No layouts available")
               self.complete_button.set_sensitive(False)
@@ -161,10 +148,8 @@ class KeyboardPage(BaseConfigurationPage):
         
         if self.localization_proxy:
             try:
-                # Call the SetKeyboard method on the D-Bus proxy
-                # Anaconda expects a tuple (or list): (layout, variant, options)
-                # For simplicity, we'll set variant and options to empty strings.
-                self.localization_proxy.SetKeyboard([selected_layout, "", ""])
+                # Call the SetVirtualConsoleKeymap method (Corrected method)
+                self.localization_proxy.SetVirtualConsoleKeymap(selected_layout)
                 print("Keyboard layout successfully set via D-Bus.")
                 self.show_toast(f"Keyboard layout '{selected_layout}' applied.")
                 
@@ -176,7 +161,7 @@ class KeyboardPage(BaseConfigurationPage):
                 self.show_toast(f"Error setting keyboard layout: {e}")
                 self.complete_button.set_sensitive(True) 
             except AttributeError as e:
-                 print(f"ERROR: D-Bus method SetKeyboard not found: {e}. Check LocalizationInterface.")
+                 print(f"ERROR: D-Bus method SetVirtualConsoleKeymap not found: {e}.") # Updated error
                  self.show_toast(f"Failed to apply layout (D-Bus error): {e}")
                  self.complete_button.set_sensitive(True)
             except Exception as e:
