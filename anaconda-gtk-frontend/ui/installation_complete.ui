@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <requires lib="libadwaita" version="1.0"/>
+  <template class="InstallationCompleteView" parent="GtkBox">
+    <property name="orientation">vertical</property>
+    <property name="spacing">12</property>
+    <property name="margin-start">24</property>
+    <property name="margin-end">24</property>
+    <property name="margin-top">24</property>
+    <property name="margin-bottom">24</property>
+    <property name="valign">center</property>
+    <property name="halign">center</property>
+    <property name="hexpand">true</property>
+
+    <child>
+      <object class="AdwStatusPage">
+        <property name="icon-name">emblem-ok-symbolic</property>
+        <property name="title" translatable="yes">Installation Complete</property>
+        <property name="description" translatable="yes">Fedora is now successfully installed and ready for you to use. Reboot to start using it.</property>
+      </object>
+    </child>
+
+    <child>
+        <object class="GtkButton" id="reboot_button">
+            <property name="label" translatable="yes">_Reboot Now</property>
+            <property name="halign">center</property>
+            <property name="margin-top">24</property>
+             <property name="use-underline">true</property>
+            <property name="css-classes">pill, suggested-action</property>
+            <!-- Connect signal in code -->
+        </object>
+    </child>
+
+  </template>
+</interface> 

@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <requires lib="libadwaita" version="1.0"/>
+  <template class="UserCreationView" parent="GtkBox">
+    <property name="orientation">vertical</property>
+    <property name="spacing">12</property>
+    <property name="margin-start">12</property>
+    <property name="margin-end">12</property>
+    <property name="margin-top">12</property>
+    <property name="margin-bottom">12</property>
+
+    <child>
+      <object class="GtkLabel">
+        <property name="label" translatable="yes">Create User Account</property>
+        <property name="halign">center</property>
+        <property name="css-classes">title-1</property>
+        <property name="margin-bottom">12</property>
+      </object>
+    </child>
+
+    <child>
+        <object class="AdwPreferencesGroup">
+            <property name="title" translatable="yes">Your Account</property>
+            <child>
+                <object class="AdwEntryRow" id="full_name_row">
+                    <property name="title" translatable="yes">Full name</property>
+                </object>
+            </child>
+            <child>
+                <object class="AdwEntryRow" id="username_row">
+                    <property name="title" translatable="yes">Username</property>
+                    <!-- Add validation hints later -->
+                </object>
+            </child>
+             <child>
+                <object class="AdwPasswordEntryRow" id="password_row">
+                    <property name="title" translatable="yes">Password</property>
+                </object>
+            </child>
+             <child>
+                <object class="AdwPasswordEntryRow" id="confirm_password_row">
+                    <property name="title" translatable="yes">Confirm password</property>
+                </object>
+            </child>
+            <child>
+                 <object class="AdwActionRow" id="admin_row">
+                    <property name="title" translatable="yes">Make this user administrator</property>
+                    <property name="activatable-widget">admin_check</property>
+                    <child>
+                        <object class="GtkCheckButton" id="admin_check">
+                            <property name="active">true</property>
+                            <property name="valign">center</property>
+                        </object>
+                    </child>
+                 </object>
+            </child>
+        </object>
+    </child>
+
+    <child>
+        <object class="AdwPreferencesGroup">
+            <property name="title" translatable="yes">Root Account</property>
+             <child>
+                <object class="AdwActionRow" id="root_enable_row">
+                    <property name="title" translatable="yes">Enable the root account</property>
+                    <property name="subtitle" translatable="yes">Not recommended unless necessary</property>
+                     <property name="activatable-widget">root_enable_check</property>
+                    <child>
+                         <object class="GtkCheckButton" id="root_enable_check">
+                            <property name="valign">center</property>
+                        </object>
+                    </child>
+                </object>
+            </child>
+            <child>
+                 <object class="AdwPasswordEntryRow" id="root_password_row">
+                    <property name="title" translatable="yes">Root password</property>
+                    <property name="sensitive" bind-source="root_enable_check" bind-property="active" bind-flags="sync-create"/>
+                </object>
+            </child>
+             <child>
+                <object class="AdwPasswordEntryRow" id="root_confirm_password_row">
+                    <property name="title" translatable="yes">Confirm root password</property>
+                    <property name="sensitive" bind-source="root_enable_check" bind-property="active" bind-flags="sync-create"/>
+                </object>
+            </child>
+        </object>
+    </child>
+
+    <!-- Optional: Add advanced options button -->
+
+  </template>
+</interface> 

@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <requires lib="libadwaita" version="1.0"/>
+
+  <!-- Define ToolbarView as the main structure -->
+  <object class="AdwToolbarView" id="toolbar_view">
+    <!-- HeaderBar will be added programmatically via add_top_bar -->
+    <!-- ViewStack will be set programmatically via set_content -->
+  </object>
+
+  <!-- Define HeaderBar separately -->
+  <object class="AdwHeaderBar" id="header_bar">
+    <!-- REMOVE BUTTON DEFINITIONS FROM HERE -->
+    <!-- <child type="start"> ... </child> -->
+    <!-- <child type="end"> ... </child> -->
+    <!-- <child type="end"> ... </child> -->
+  </object>
+
+  <!-- Define ActionBar separately for bottom buttons -->
+  <object class="GtkActionBar" id="action_bar">
+    <child type="start">
+       <object class="GtkButton" id="back_button">
+          <property name="label" translatable="yes">_Back</property>
+          <property name="use-underline">true</property>
+          <property name="visible">false</property> <!-- Initially hidden -->
+       </object>
+    </child>
+    <child type="end">
+       <object class="GtkButton" id="quit_button">
+         <property name="label" translatable="yes">_Quit</property>
+         <property name="use-underline">true</property>
+         <property name="action-name">app.quit</property>
+       </object>
+     </child>
+     <child type="end">
+       <object class="GtkButton" id="continue_button">
+         <property name="label" translatable="yes">_Continue</property>
+         <property name="use-underline">true</property>
+         <property name="css-classes">suggested-action</property>
+       </object>
+     </child>
+  </object>
+
+  <!-- Define ViewStack separately -->
+  <object class="AdwViewStack" id="view_stack">
+    <!-- Define pages using <child type="page"> -->
+    <child type="page">
+        <object class="AdwViewStackPage" id="welcome_page">
+          <property name="name">welcome</property>
+          <property name="title" translatable="yes">Welcome</property>
+          <property name="child">
+            <object class="WelcomeView"/>
+          </property>
+        </object>
+      </child>
+      <child type="page">
+         <object class="AdwViewStackPage" id="keyboard_page">
+           <property name="name">keyboard</property>
+           <property name="title" translatable="yes">Keyboard Layout</property>
+           <property name="child">
+             <object class="KeyboardLayoutView"/>
+           </property>
+         </object>
+      </child>
+      <child type="page">
+         <object class="AdwViewStackPage" id="destination_page">
+           <property name="name">destination</property>
+           <property name="title" translatable="yes">Installation Destination</property>
+           <property name="child">
+             <object class="InstallationDestinationView"/>
+           </property>
+         </object>
+      </child>
+      <child type="page">
+         <object class="AdwViewStackPage" id="user_creation_page">
+           <property name="name">user_creation</property>
+           <property name="title" translatable="yes">Create User</property>
+           <property name="child">
+             <object class="UserCreationView"/>
+           </property>
+        </object>
+      </child>
+      <child type="page">
+         <object class="AdwViewStackPage" id="timezone_page">
+           <property name="name">timezone</property>
+           <property name="title" translatable="yes">Timezone</property>
+           <property name="child">
+             <object class="TimezoneSelectionView"/>
+           </property>
+        </object>
+      </child>
+      <child type="page">
+        <object class="AdwViewStackPage" id="software_page">
+           <property name="name">software</property>
+           <property name="title" translatable="yes">Software</property>
+           <property name="child">
+             <object class="SoftwareSelectionView"/>
+           </property>
+         </object>
+      </child>
+      <child type="page">
+         <object class="AdwViewStackPage" id="summary_page">
+           <property name="name">summary</property>
+           <property name="title" translatable="yes">Summary</property>
+           <property name="child">
+             <object class="InstallationSummaryView"/>
+           </property>
+         </object>
+      </child>
+      <child type="page">
+        <object class="AdwViewStackPage" id="progress_page">
+           <property name="name">progress</property>
+           <property name="title" translatable="yes">Installing</property>
+           <property name="child">
+             <object class="InstallationProgressView"/>
+           </property>
+        </object>
+      </child>
+      <child type="page">
+        <object class="AdwViewStackPage" id="complete_page">
+           <property name="name">complete</property>
+           <property name="title" translatable="yes">Complete</property>
+           <property name="child">
+             <object class="InstallationCompleteView"/>
+           </property>
+        </object>
+      </child>
+  </object>
+
+</interface> 

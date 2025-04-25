@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <requires lib="libadwaita" version="1.0"/>
+  <template class="TimezoneSelectionView" parent="GtkBox">
+    <property name="orientation">vertical</property>
+    <property name="spacing">12</property>
+    <property name="margin-start">12</property>
+    <property name="margin-end">12</property>
+    <property name="margin-top">12</property>
+    <property name="margin-bottom">12</property>
+
+    <child>
+      <object class="GtkLabel">
+        <property name="label" translatable="yes">Timezone Selection</property>
+        <property name="halign">center</property>
+        <property name="css-classes">title-1</property>
+        <property name="margin-bottom">12</property>
+      </object>
+    </child>
+
+    <!-- Region/City Selection -->
+    <child>
+      <object class="GtkBox">
+         <property name="orientation">horizontal</property>
+         <property name="spacing">12</property>
+         <property name="vexpand">true</property>
+         <child>
+            <!-- Region List -->
+             <object class="GtkBox">
+                <property name="orientation">vertical</property>
+                <property name="spacing">6</property>
+                <property name="hexpand">true</property>
+                <child>
+                    <object class="GtkLabel">
+                        <property name="label" translatable="yes">Region</property>
+                         <property name="halign">start</property>
+                        <property name="css-classes">subtitle</property>
+                    </object>
+                </child>
+                <child>
+                     <object class="GtkSearchEntry" id="region_search_entry">
+                         <property name="placeholder-text" translatable="yes">Search regions...</property>
+                    </object>
+                </child>
+                 <child>
+                     <object class="GtkScrolledWindow">
+                         <property name="hscrollbar-policy">never</property>
+                        <property name="vexpand">true</property>
+                        <child>
+                            <object class="GtkListBox" id="region_list_box">
+                                <property name="selection-mode">browse</property> <!-- Single selection, activates on click -->
+                                <property name="css-classes">boxed-list</property>
+                            </object>
+                        </child>
+                    </object>
+                 </child>
+            </object>
+         </child>
+         <child>
+             <!-- City List -->
+            <object class="GtkBox">
+                <property name="orientation">vertical</property>
+                <property name="spacing">6</property>
+                <property name="hexpand">true</property>
+                 <child>
+                    <object class="GtkLabel">
+                        <property name="label" translatable="yes">City / Area</property>
+                         <property name="halign">start</property>
+                        <property name="css-classes">subtitle</property>
+                    </object>
+                </child>
+                 <child>
+                     <object class="GtkSearchEntry" id="city_search_entry">
+                         <property name="placeholder-text" translatable="yes">Search cities...</property>
+                         <property name="sensitive">false</property> <!-- Disabled until region selected -->
+                    </object>
+                </child>
+                <child>
+                    <object class="GtkScrolledWindow">
+                        <property name="hscrollbar-policy">never</property>
+                        <property name="vexpand">true</property>
+                        <child>
+                             <object class="GtkListBox" id="city_list_box">
+                                <property name="selection-mode">browse</property>
+                                <property name="css-classes">boxed-list</property>
+                            </object>
+                        </child>
+                    </object>
+                </child>
+            </object>
+         </child>
+      </object>
+    </child>
+
+    <!-- Selected Timezone Display -->
+    <child>
+        <object class="GtkLabel" id="selected_timezone_label">
+            <property name="label" translatable="yes">Selected Timezone: None</property>
+            <property name="halign">center</property>
+             <property name="css-classes">caption</property>
+             <property name="margin-top">6</property>
+        </object>
+    </child>
+
+    <!-- Option for Network Time -->
+     <child>
+        <object class="AdwPreferencesGroup">
+            <child>
+                 <object class="AdwActionRow">
+                    <property name="title" translatable="yes">Network Time</property>
+                    <property name="subtitle" translatable="yes">Synchronize time over the network (NTP)</property>
+                    <property name="activatable-widget">ntp_switch</property>
+                    <child>
+                        <object class="GtkSwitch" id="ntp_switch">
+                             <property name="active">true</property> <!-- Default to on -->
+                            <property name="valign">center</property>
+                        </object>
+                    </child>
+                 </object>
+            </child>
+        </object>
+    </child>
+
+  </template>
+</interface> 

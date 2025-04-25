@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <requires lib="libadwaita" version="1.0"/>
+  <template class="InstallationSummaryView" parent="GtkBox">
+    <property name="orientation">vertical</property>
+    <property name="spacing">12</property>
+    <property name="margin-start">12</property>
+    <property name="margin-end">12</property>
+    <property name="margin-top">12</property>
+    <property name="margin-bottom">12</property>
+
+    <child>
+      <object class="GtkLabel">
+        <property name="label" translatable="yes">Installation Summary</property>
+        <property name="halign">center</property>
+        <property name="css-classes">title-1</property>
+        <property name="margin-bottom">12</property>
+      </object>
+    </child>
+
+    <child>
+        <object class="GtkLabel">
+            <property name="label" translatable="yes">Review your selections before starting the installation.</property>
+            <property name="wrap">true</property>
+            <property name="justify">center</property>
+             <property name="margin-bottom">12</property>
+        </object>
+    </child>
+
+    <child>
+        <object class="AdwPreferencesGroup" id="summary_group">
+            <!-- Summary items will be added here -->
+            <!-- Example rows (will be populated from code) -->
+            <child>
+                 <object class="AdwActionRow" id="summary_lang_row">
+                    <property name="title" translatable="yes">Language</property>
+                    <property name="subtitle">English</property>
+                </object>
+            </child>
+            <child>
+                 <object class="AdwActionRow" id="summary_keyboard_row">
+                    <property name="title" translatable="yes">Keyboard Layout</property>
+                    <property name="subtitle">us</property>
+                </object>
+            </child>
+            <child>
+                 <object class="AdwActionRow" id="summary_destination_row">
+                    <property name="title" translatable="yes">Installation Destination</property>
+                    <property name="subtitle">/dev/sda (Automatic)</property>
+                </object>
+            </child>
+            <child>
+                 <object class="AdwActionRow" id="summary_user_row">
+                    <property name="title" translatable="yes">User Account</property>
+                    <property name="subtitle">User 'fedora', Administrator</property>
+                </object>
+            </child>
+            <child>
+                  <object class="AdwActionRow" id="summary_root_row">
+                    <property name="title" translatable="yes">Root Account</property>
+                    <property name="subtitle">Disabled</property>
+                </object>
+            </child>
+        </object>
+    </child>
+
+  </template>
+</interface> 

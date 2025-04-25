@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <requires lib="libadwaita" version="1.0"/>
+  <template class="InstallationProgressView" parent="GtkBox">
+    <property name="orientation">vertical</property>
+    <property name="spacing">12</property>
+    <property name="margin-start">24</property>
+    <property name="margin-end">24</property>
+    <property name="margin-top">24</property>
+    <property name="margin-bottom">24</property>
+    <property name="valign">center</property> <!-- Center vertically -->
+    <property name="hexpand">true</property>
+
+    <child>
+      <object class="GtkLabel">
+        <property name="label" translatable="yes">Installing Fedora</property>
+        <property name="halign">center</property>
+        <property name="css-classes">title-1</property>
+        <property name="margin-bottom">24</property>
+      </object>
+    </child>
+
+    <child>
+        <object class="GtkProgressBar" id="progress_bar">
+            <property name="show-text">true</property>
+            <property name="text" translatable="yes">Starting installation...</property>
+            <property name="fraction">0.0</property>
+             <property name="margin-bottom">6</property>
+        </object>
+    </child>
+
+    <child>
+        <object class="GtkLabel" id="progress_label">
+            <property name="label" translatable="yes">Preparing...</property>
+            <property name="halign">center</property>
+             <property name="css-classes">caption</property>
+        </object>
+    </child>
+
+     <!-- Optional: Add a section for detailed logs -->
+
+  </template>
+</interface> 

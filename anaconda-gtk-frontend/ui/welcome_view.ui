@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<interface>
+  <requires lib="gtk" version="4.0"/>
+  <requires lib="libadwaita" version="1.0"/>
+
+  <template class="WelcomeView" parent="GtkBox">
+    <property name="orientation">vertical</property>
+    <child>
+      <object class="AdwPreferencesPage" id="preferences_page">
+        <child>
+          <object class="AdwPreferencesGroup">
+            <property name="title" translatable="yes">Language</property>
+            <property name="description" translatable="yes">Select the language to use during installation.</property>
+            <child>
+              <object class="AdwComboRow" id="language_combo_row">
+                 <property name="title" translatable="yes">Installation Language</property>
+                 <property name="model">
+                   <object class="GtkStringList">
+                     <items>
+                       <item translatable="yes">English</item>
+                       <item translatable="yes">Español</item>
+                       <item translatable="yes">Français</item>
+                     </items>
+                   </object>
+                 </property>
+                 <property name="selected">0</property>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
+    </child>
+  </template>
+</interface> 
