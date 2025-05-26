@@ -176,8 +176,7 @@ class InstallationProgressView(Gtk.Box):
         self._completion_callback = completion_callback
         self.progress_bar.set_fraction(0.0)
         self.progress_bar.set_text("0%")
-        self.status_label.set_text("Preparing installation environment...")
-        self.progress_label.set_text("Initializing...")
+        self.status_label.set_label("Preparing installation environment...")
         self.cancel_button.set_label("Cancel")
         self._is_installing = True
         
@@ -312,8 +311,7 @@ class InstallationProgressView(Gtk.Box):
         self._is_installing = False
         self.progress_bar.set_fraction(0.0)
         self.progress_bar.set_text("0%")
-        self.progress_label.set_text("Installation failed!")
-        self.status_label.set_text(f"Error: {error_message}")
+        self.status_label.set_label(f"Installation failed: {error_message}")
         self.cancel_button.set_label("Close")
         
         # Call completion callback with failure
@@ -341,8 +339,7 @@ class InstallationProgressView(Gtk.Box):
         
         self._is_installing = False
         print("Installation cancelled by user")
-        self.progress_label.set_text("Installation cancelled")
-        self.status_label.set_text("The installation was cancelled.")
+        self.status_label.set_label("The installation was cancelled.")
         self.cancel_button.set_label("Close")
     
     def _show_error(self, title, message):

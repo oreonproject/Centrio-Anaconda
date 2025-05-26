@@ -119,7 +119,17 @@ class KeyboardLayoutView(Gtk.Box):
         term = search_term.lower() if search_term else None
         for layout in self._all_layouts:
             if term is None or term in layout.lower():
-                row = Gtk.Label(label=layout, xalign=0) # Align text left
+                # Create a new ListBoxRow
+                row = Gtk.ListBoxRow()
+                # Create a box to hold the layout label
+                box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+                # Create the layout label
+                label = Gtk.Label(label=layout, xalign=0)
+                label.set_hexpand(True)
+                box.append(label)
+                # Add the box to the row
+                row.set_child(box)
+                # Add the row to the list box
                 self.layout_list_box.append(row)
         
         # Select the first item if list is not empty and something was selected previously or nothing was
@@ -136,9 +146,14 @@ class KeyboardLayoutView(Gtk.Box):
     def on_row_selected(self, list_box, row):
         """Called when a layout is selected in the list."""
         if row:
-            self.selected_layout = row.get_child().get_label()
-            print(f"Selected layout: {self.selected_layout}")
-            self._set_keyboard_layout(self.selected_layout)
+            # Get the box containing the label
+            box = row.get_child()
+            # Get the first child of the box, which is our label
+            label = box.get_first_child()
+            if label and isinstance(label, Gtk.Label):
+                self.selected_layout = label.get_label()
+                print(f"Selected layout: {self.selected_layout}")
+                self._set_keyboard_layout(self.selected_layout)
         else:
             self.selected_layout = None
             print("Layout deselected")
@@ -181,8 +196,12 @@ class KeyboardLayoutView(Gtk.Box):
         rows = []
         child = self.layout_list_box.get_first_child()
         while child:
-            if isinstance(child, Gtk.ListBoxRow) and isinstance(child.get_child(), Gtk.Label):
-                 rows.append(child.get_child())
+            if isinstance(child, Gtk.ListBoxRow):
+                box = child.get_child()
+                if box and isinstance(box, Gtk.Box):
+                    label = box.get_first_child()
+                    if label and isinstance(label, Gtk.Label):
+                        rows.append(label)
             child = child.get_next_sibling()
         return rows
 
@@ -190,10 +209,13 @@ class KeyboardLayoutView(Gtk.Box):
         """Programmatically selects a layout in the list."""
         child = self.layout_list_box.get_first_child()
         while child:
-            if isinstance(child, Gtk.ListBoxRow) and isinstance(child.get_child(), Gtk.Label):
-                if child.get_child().get_label() == layout_name:
-                    self.layout_list_box.select_row(child)
-                    break
+            if isinstance(child, Gtk.ListBoxRow):
+                box = child.get_child()
+                if box and isinstance(box, Gtk.Box):
+                    label = box.get_first_child()
+                    if label and isinstance(label, Gtk.Label) and label.get_label() == layout_name:
+                        self.layout_list_box.select_row(child)
+                        break
             child = child.get_next_sibling()
 
     def get_selected_layout(self):
