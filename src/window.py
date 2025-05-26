@@ -175,17 +175,32 @@ class ExampleWindow(Adw.ApplicationWindow):
                 self._config_data['destination'] = config
             next_page = "user_creation"
         elif current_page == "user_creation":
-            if self.user_creation_view_widget:
-                user_details = self.user_creation_view_widget.get_user_details()
-                if user_details:
-                     print(f"User details: {user_details}")
-                     self._config_data['user'] = user_details
-                     next_page = "timezone"
-                else:
-                     self.show_error_dialog("User Information Invalid", "Please correct the errors in the user account fields.")
-                     return # Validation failed in view
+            if not self.user_creation_view_widget:
+                print("Error: User creation view widget not found")
+                return
+                
+            # Force validation of all fields
+            self.user_creation_view_widget.validate_username()
+            self.user_creation_view_widget.validate_passwords()
+            self.user_creation_view_widget.validate_root_passwords()
+            
+            # Get user details (this also performs validation)
+            user_details = self.user_creation_view_widget.get_user_details()
+            
+            if user_details:
+                print(f"User details collected successfully: { {k: '***' if 'password' in k else v for k, v in user_details.items()} }")
+                self._config_data['user'] = user_details
+                next_page = "timezone"
             else:
-                 return # Should not happen
+                print("Validation failed in user creation form")
+                self.show_error_dialog(
+                    "User Information Invalid",
+                    "Please check the following:\n"
+                    "- Username must be lowercase and start with a letter\n"
+                    "- Passwords must match and not be empty\n"
+                    "- If root account is enabled, root passwords must match"
+                )
+                return
         elif current_page == "timezone":
             if self.timezone_view_widget:
                  tz_config = self.timezone_view_widget.get_selected_timezone_config()

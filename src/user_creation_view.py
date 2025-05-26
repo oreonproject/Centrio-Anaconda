@@ -116,14 +116,17 @@ class UserCreationView(Gtk.Box):
             print("Validation Error: Root passwords do not match or are empty.")
             return None
             
-        # Don't return passwords if validation failed, just the indication of failure (None)
-        # Return the data, EXCLUDING raw passwords for safety in logs etc.
-        # The actual password will be handled by the backend.
-        return {
+        # Return the user details including the password
+        # The password is needed by the installer to create the user account
+        result = {
             "full_name": details["full_name"],
             "username": details["username"],
+            "password": details["password"],  # Include the actual password
             "is_admin": details["is_admin"],
             "root_enabled": details["root_enabled"],
-            "password_set": bool(details["password"]),
-            "root_password_set": details["root_enabled"] and bool(details["root_password"])
-        } 
+            "root_password": details["root_password"] if details["root_enabled"] else None
+        }
+        
+        # For debugging
+        print(f"User details collected: { {k: '***' if 'password' in k else v for k, v in result.items()} }")
+        return result 
