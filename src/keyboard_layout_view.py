@@ -29,7 +29,7 @@ class KeyboardLayoutView(Gtk.Box):
         self.search_entry.connect("search-changed", self.on_search_changed)
         self.layout_list_box.connect("row-selected", self.on_row_selected)
         print("KeyboardLayoutView initialized and populated")
-        
+
     def _connect_to_anaconda(self):
         """Connect to Anaconda's DBus service."""
         try:
@@ -48,7 +48,7 @@ class KeyboardLayoutView(Gtk.Box):
             self._show_error("Connection Error", 
                            "Could not connect to the Anaconda Localization service. "
                            "Running in offline mode with limited functionality.")
-    
+
     def _show_error(self, title, message):
         """Show an error dialog."""
         dialog = Adw.MessageDialog.new(
@@ -83,7 +83,7 @@ class KeyboardLayoutView(Gtk.Box):
         except GLib.Error as e:
             print(f"Error getting layouts from Anaconda: {e}")
             return self._get_layouts_fallback()
-    
+
     def _get_layouts_fallback(self):
         """Fallback method to get layouts using localectl."""
         try:
@@ -164,35 +164,7 @@ class KeyboardLayoutView(Gtk.Box):
         term = search_term.lower() if search_term else None
         for code, name in self._all_layouts:
             if term is None or term in name.lower() or term in code.lower():
-                # Create a new ListBoxRow
-                row = Gtk.ListBoxRow()
-                
-                # Create a box to hold the layout info
-                box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-                box.set_margin_top(6)
-                box.set_margin_bottom(6)
-                box.set_margin_start(12)
-                box.set_margin_end(12)
-                
-                # Create the layout name label
-                name_label = Gtk.Label(label=name, xalign=0)
-                name_label.set_hexpand(True)
-                
-                # Create the layout code label
-                code_label = Gtk.Label(label=f"({code})", xalign=0)
-                code_label.get_style_context().add_class("dim-label")
-                
-                # Add labels to the box
-                box.append(name_label)
-                box.append(code_label)
-                
-                # Add the box to the row
-                row.set_child(box)
-                
-                # Store the code as row data
-                row.set_data("layout_code", code)
-                
-                # Add the row to the list box
+                row = self._create_layout_row(code, name)
                 self.layout_list_box.append(row)
         
         # Select the first item if list is not empty and something was selected previously or nothing was
@@ -208,13 +180,10 @@ class KeyboardLayoutView(Gtk.Box):
 
     def on_row_selected(self, list_box, row):
         """Called when a layout is selected in the list."""
-        if row:
-            # Get the layout code from the row's data
-            layout_code = row.get_data("layout_code")
-            if layout_code:
-                self.selected_layout = layout_code
-                print(f"Selected layout: {layout_code}")
-                self._set_keyboard_layout(layout_code)
+        if hasattr(row, 'layout_code'):
+            self.selected_layout = row.layout_code
+            print(f"Selected layout: {row.layout_code}")
+            self._set_keyboard_layout(row.layout_code)
         else:
             self.selected_layout = None
             print("Layout deselected")
@@ -257,10 +226,8 @@ class KeyboardLayoutView(Gtk.Box):
         rows = []
         child = self.layout_list_box.get_first_child()
         while child:
-            if isinstance(child, Gtk.ListBoxRow):
-                layout_code = child.get_data("layout_code")
-                if layout_code:
-                    rows.append(layout_code)
+            if isinstance(child, Gtk.ListBoxRow) and hasattr(child, 'layout_code'):
+                rows.append(child.layout_code)
             child = child.get_next_sibling()
         return rows
 
@@ -271,11 +238,9 @@ class KeyboardLayoutView(Gtk.Box):
             
         child = self.layout_list_box.get_first_child()
         while child:
-            if isinstance(child, Gtk.ListBoxRow):
-                code = child.get_data("layout_code")
-                if code == layout_code:
-                    self.layout_list_box.select_row(child)
-                    break
+            if hasattr(child, 'layout_code') and child.layout_code == layout_code:
+                self.layout_list_box.select_row(child)
+                break
             child = child.get_next_sibling()
 
     def get_selected_layout(self):
