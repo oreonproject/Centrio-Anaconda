@@ -42,8 +42,6 @@ class UserCreationView(Gtk.Box):
         if username != self.username_row.get_text().strip():
             self.username_row.set_text(username)
             
-        # Always return True to prevent blocking form submission
-        self.username_row.set_property("error-level", Gtk.InputError.NONE)
         return True
 
     def validate_passwords(self, *args):
@@ -68,19 +66,13 @@ class UserCreationView(Gtk.Box):
         if pw1 != pw2:
             self.confirm_password_row.set_text(pw1)
             
-        # Clear any error states
-        self.password_row.set_property("error-level", Gtk.InputError.NONE)
-        self.confirm_password_row.set_property("error-level", Gtk.InputError.NONE)
-        
         return True
 
     def validate_root_passwords(self, *args):
         if not self.root_enable_check.get_active():
-            # If root is not enabled, ensure the fields are empty and valid
+            # If root is not enabled, ensure the fields are empty
             self.root_password_row.set_text("")
             self.root_confirm_password_row.set_text("")
-            self.root_password_row.set_property("error-level", Gtk.InputError.NONE)
-            self.root_confirm_password_row.set_property("error-level", Gtk.InputError.NONE)
             return True
             
         pw1 = self.root_password_row.get_text()
@@ -88,16 +80,10 @@ class UserCreationView(Gtk.Box):
         
         # If root is enabled but no password is set, use the user password
         if not pw1 and not pw2:
-            user_pw = self.password_row.get_text()
-            if user_pw:
-                self.root_password_row.set_text(user_pw)
-                self.root_confirm_password_row.set_text(user_pw)
-                pw1 = pw2 = user_pw
-            else:
-                default_pw = "password"
-                self.root_password_row.set_text(default_pw)
-                self.root_confirm_password_row.set_text(default_pw)
-                pw1 = pw2 = default_pw
+            user_pw = self.password_row.get_text() or "password"
+            self.root_password_row.set_text(user_pw)
+            self.root_confirm_password_row.set_text(user_pw)
+            pw1 = pw2 = user_pw
         # If only one root password field is filled, copy it to the other
         elif not pw1 and pw2:
             self.root_password_row.set_text(pw2)
@@ -110,10 +96,6 @@ class UserCreationView(Gtk.Box):
         if pw1 != pw2:
             self.root_confirm_password_row.set_text(pw1)
             
-        # Clear any error states
-        self.root_password_row.set_property("error-level", Gtk.InputError.NONE)
-        self.root_confirm_password_row.set_property("error-level", Gtk.InputError.NONE)
-        
         return True
 
     def get_user_details(self):

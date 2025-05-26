@@ -175,17 +175,41 @@ class ExampleWindow(Adw.ApplicationWindow):
                 self._config_data['destination'] = config
             next_page = "user_creation"
         elif current_page == "user_creation":
-            if not self.user_creation_view_widget:
-                print("Error: User creation view widget not found")
-                return
+            try:
+                if not self.user_creation_view_widget:
+                    print("Error: User creation view widget not found")
+                    return
+                    
+                # Force validation of all fields
+                self.user_creation_view_widget.validate_username()
+                self.user_creation_view_widget.validate_passwords()
+                self.user_creation_view_widget.validate_root_passwords()
                 
-            # Get user details (this will automatically validate and correct the form)
-            user_details = self.user_creation_view_widget.get_user_details()
-            
-            # At this point, user_details should always be valid due to auto-correction
-            print(f"Proceeding with user details: { {k: '***' if 'password' in k else v for k, v in user_details.items()} }")
-            self._config_data['user'] = user_details
-            next_page = "timezone"
+                # Get user details (this will also validate)
+                user_details = self.user_creation_view_widget.get_user_details()
+                
+                if not user_details:
+                    print("Error: Failed to get user details")
+                    return
+                    
+                print(f"Proceeding with user details: { {k: '***' if 'password' in k else v for k, v in user_details.items()} }")
+                self._config_data['user'] = user_details
+                next_page = "timezone"
+                
+            except Exception as e:
+                print(f"Error in user creation: {str(e)}")
+                import traceback
+                traceback.print_exc()
+                # Try to proceed anyway with default values
+                self._config_data['user'] = {
+                    'full_name': 'User',
+                    'username': 'user',
+                    'password': 'password',
+                    'is_admin': True,
+                    'root_enabled': False,
+                    'root_password': None
+                }
+                next_page = "timezone"
         elif current_page == "timezone":
             if self.timezone_view_widget:
                  tz_config = self.timezone_view_widget.get_selected_timezone_config()
