@@ -1,2 +1,0 @@
-PyGObject
-dbus-python # For udisks2 interaction, might be replaceable with Gio 

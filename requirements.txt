@@ -1,6 +1,2 @@
-# Required for GTK4 and Libadwaita
-PyGObject>=3.40
-# Required for D-Bus communication
-dasbus>=1.6
-# Required for timezone list data
-pytz
+PyGObject
+dbus-python # For udisks2 interaction, might be replaceable with Gio 

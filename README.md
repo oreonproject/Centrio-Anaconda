@@ -1,3 +1,3 @@
-# Centrio Installer
+# Anaconda GTK Frontend
 
-A modernized GTK installer for Oreon and other Linux distributions.
+A modern GTK/Libadwaita frontend for the Fedora Anaconda installer. 
