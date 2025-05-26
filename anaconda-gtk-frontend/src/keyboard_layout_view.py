@@ -5,6 +5,11 @@ from gi.repository import Gtk, Adw, GLib, Gio
 import subprocess
 import locale
 
+# Anaconda DBus service constants
+ANACONDA_BUS_NAME = 'org.fedoraproject.Anaconda.Modules.Localization'
+ANACONDA_OBJECT_PATH = '/org/fedoraproject/Anaconda/Modules/Localization'
+ANACONDA_INTERFACE = 'org.fedoraproject.Anaconda.Modules.Localization'
+
 
 @Gtk.Template(filename='ui/keyboard_layout.ui')
 class KeyboardLayoutView(Gtk.Box):
@@ -18,32 +23,83 @@ class KeyboardLayoutView(Gtk.Box):
         super().__init__(**kwargs)
         self.selected_layout = None
         self._all_layouts = []
+        self._dbus_proxy = None
+        self._connect_to_anaconda()
         self.populate_layouts()
         self.search_entry.connect("search-changed", self.on_search_changed)
         self.layout_list_box.connect("row-selected", self.on_row_selected)
         print("KeyboardLayoutView initialized and populated")
+        
+    def _connect_to_anaconda(self):
+        """Connect to Anaconda's DBus service."""
+        try:
+            self._dbus_proxy = Gio.DBusProxy.new_for_bus_sync(
+                Gio.BusType.SYSTEM,
+                Gio.DBusProxyFlags.NONE,
+                None,
+                ANACONDA_BUS_NAME,
+                ANACONDA_OBJECT_PATH,
+                ANACONDA_INTERFACE,
+                None
+            )
+            print("Connected to Anaconda Localization service")
+        except GLib.Error as e:
+            print(f"Failed to connect to Anaconda Localization service: {e}")
+            self._show_error("Connection Error", 
+                           "Could not connect to the Anaconda Localization service. "
+                           "Running in offline mode with limited functionality.")
+    
+    def _show_error(self, title, message):
+        """Show an error dialog."""
+        dialog = Adw.MessageDialog.new(
+            transient_for=self.get_root(),
+            heading=title,
+            body=message
+        )
+        dialog.add_response("ok", "OK")
+        dialog.present()
 
     def get_available_layouts(self):
-        """Fetches available X11 keyboard layouts using localectl."""
+        """Fetches available X11 keyboard layouts using Anaconda's DBus service."""
+        if not self._dbus_proxy:
+            print("DBus proxy not available, using fallback method")
+            return self._get_layouts_fallback()
+            
         try:
-            # Run localectl command
+            # Call the GetXLayouts method on the DBus interface
+            result = self._dbus_proxy.call_sync(
+                'GetXLayouts',
+                None,  # No parameters
+                Gio.DBusCallFlags.NONE,
+                -1,  # Default timeout
+                None  # Cancellable
+            )
+            
+            # The result should be a list of layout strings
+            layouts = result.unpack()[0] if result else []
+            print(f"Found {len(layouts)} layouts via DBus")
+            return layouts
+            
+        except GLib.Error as e:
+            print(f"Error getting layouts from Anaconda: {e}")
+            return self._get_layouts_fallback()
+    
+    def _get_layouts_fallback(self):
+        """Fallback method to get layouts using localectl."""
+        try:
             result = subprocess.run(["localectl", "list-x11-keymap-layouts"], 
-                                    capture_output=True, text=True, check=True)
+                                  capture_output=True, text=True, check=True)
             layouts = result.stdout.strip().split('\n')
-            # Use locale to sort layouts based on the current language if possible
             try:
                 locale.setlocale(locale.LC_COLLATE, '')
             except locale.Error:
-                pass # Keep default C locale if setting fails
+                pass  # Keep default C locale if setting fails
             layouts.sort(key=locale.strxfrm)
-            print(f"Found {len(layouts)} layouts.")
+            print(f"Found {len(layouts)} layouts via localectl")
             return layouts
-        except FileNotFoundError:
-            print("Error: 'localectl' command not found. Returning default list.")
-            return ["us", "gb", "de", "fr"] # Fallback
-        except subprocess.CalledProcessError as e:
+        except (FileNotFoundError, subprocess.CalledProcessError) as e:
             print(f"Error running localectl: {e}")
-            return ["us", "gb", "de", "fr"] # Fallback
+            return ["us", "gb", "de", "fr"]  # Default fallback
 
     def populate_layouts(self):
         """Populates the list box with available layouts."""
@@ -82,9 +138,43 @@ class KeyboardLayoutView(Gtk.Box):
         if row:
             self.selected_layout = row.get_child().get_label()
             print(f"Selected layout: {self.selected_layout}")
+            self._set_keyboard_layout(self.selected_layout)
         else:
             self.selected_layout = None
             print("Layout deselected")
+    
+    def _set_keyboard_layout(self, layout):
+        """Set the keyboard layout using Anaconda's DBus service."""
+        if not self._dbus_proxy:
+            print("DBus proxy not available, cannot set keyboard layout")
+            return
+            
+        try:
+            # Set the X layout using Anaconda's DBus interface
+            self._dbus_proxy.call_sync(
+                'SetXLayouts',
+                GLib.Variant('(as)', ([layout],)),  # Method expects an array of strings
+                Gio.DBusCallFlags.NONE,
+                -1,  # Default timeout
+                None  # Cancellable
+            )
+            print(f"Successfully set keyboard layout to: {layout}")
+            
+            # Also set the virtual console keymap if it's a simple layout
+            if ' ' not in layout and '(' not in layout:
+                self._dbus_proxy.call_sync(
+                    'SetVirtualConsoleKeymap',
+                    GLib.Variant('(s)', (layout,)),
+                    Gio.DBusCallFlags.NONE,
+                    -1,
+                    None
+                )
+                print(f"Set virtual console keymap to: {layout}")
+                
+        except GLib.Error as e:
+            print(f"Error setting keyboard layout: {e}")
+            self._show_error("Keyboard Error", 
+                           f"Failed to set keyboard layout: {e.message}")
             
     def get_list_rows(self):
         """Helper to get all GtkLabel children from the listbox rows."""

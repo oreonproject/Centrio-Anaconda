@@ -261,27 +261,68 @@ class ExampleWindow(Adw.ApplicationWindow):
 
     def on_begin_install_response(self, dialog, response_id):
         dialog.close()
-        if response_id == "install":
-            print("Starting installation process...")
-            # Navigate to progress screen
-            self.view_stack.set_visible_child_name("progress")
-            self.update_navigation_state()
-            # Start the (simulated) installation
-            if self.progress_view_widget:
-                self.progress_view_widget.start_installation_simulation(self.on_installation_complete)
-        else:
+        if response_id != "install":
             print("Installation cancelled by user.")
+            return
             
-    def on_installation_complete(self):
-        """Callback function for when installation (simulation) finishes."""
-        print("Installation finished, navigating to complete screen.")
-        self.view_stack.set_visible_child_name("complete")
+        print("Starting installation process...")
+        
+        # Navigate to progress screen
+        self.view_stack.set_visible_child_name("progress")
+        self.update_navigation_state()
+        
+        # Start the actual installation
+        if self.progress_view_widget and self.summary_view_widget:
+            # Update the summary view with the latest config
+            self.summary_view_widget.update_summary(self._config_data)
+            
+            # Start the installation
+            self.progress_view_widget.start_installation(self.on_installation_complete)
+        else:
+            error_msg = "Failed to initialize installation: Missing required components"
+            print(error_msg)
+            self.show_error_dialog("Installation Error", error_msg)
+            # Go back to summary on error
+            self.view_stack.set_visible_child_name("summary")
+            self.update_navigation_state()
+            
+    def on_installation_complete(self, success=True, message=None):
+        """
+        Callback function for when installation finishes.
+        
+        Args:
+            success: Boolean indicating if installation was successful
+            message: Optional message describing the result
+        """
+        if success:
+            print("Installation completed successfully")
+            self.view_stack.set_visible_child_name("complete")
+        else:
+            error_msg = message or "Installation failed with an unknown error"
+            print(f"Installation failed: {error_msg}")
+            self.show_error_dialog("Installation Failed", error_msg)
+            # Go back to summary on error
+            self.view_stack.set_visible_child_name("summary")
+            
         self.update_navigation_state()
 
-    def show_error_dialog(self, title, message):
-         dialog = Adw.MessageDialog.new(self, title, message)
-         dialog.add_response("ok", "OK")
-         dialog.set_default_response("ok")
-         dialog.connect("response", lambda d, r: d.close())
-         dialog.present()
+    def show_error_dialog(self, title, message, parent=None):
+        """
+        Show an error dialog with the given title and message.
+        
+        Args:
+            title: Dialog title
+            message: Error message to display
+            parent: Optional parent window (defaults to self)
+        """
+        dialog = Adw.MessageDialog.new(
+            transient_for=parent or self,
+            heading=title,
+            body=message
+        )
+        dialog.add_response("ok", "_OK")
+        dialog.set_default_response("ok")
+        dialog.set_close_response("ok")
+        dialog.connect("response", lambda d, r: d.close())
+        dialog.present()
 
