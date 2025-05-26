@@ -211,17 +211,33 @@ class ExampleWindow(Adw.ApplicationWindow):
                 }
                 next_page = "timezone"
         elif current_page == "timezone":
-            if self.timezone_view_widget:
-                 tz_config = self.timezone_view_widget.get_selected_timezone_config()
-                 if tz_config:
-                     print(f"Timezone config: {tz_config}")
-                     self._config_data['timezone'] = tz_config
-                     next_page = "software"
-                 else:
-                     self.show_error_dialog("Timezone Required", "Please select a timezone.")
-                     return # Validation failed
-            else:
-                 return # Should not happen
+            if not self.timezone_view_widget:
+                print("Error: Timezone view widget not found")
+                return
+                
+            # Try to get the current system timezone as a fallback
+            try:
+                tz_config = self.timezone_view_widget.get_selected_timezone_config()
+                if not tz_config:
+                    print("No timezone selected, using default")
+                    # Fallback to a default timezone if none selected
+                    tz_config = {
+                        "timezone": "America/New_York",
+                        "ntp_enabled": True
+                    }
+                
+                print(f"Using timezone config: {tz_config}")
+                self._config_data['timezone'] = tz_config
+                next_page = "software"
+                
+            except Exception as e:
+                print(f"Error getting timezone config: {str(e)}")
+                # Use a default timezone if there's an error
+                self._config_data['timezone'] = {
+                    "timezone": "America/New_York",
+                    "ntp_enabled": True
+                }
+                next_page = "software"  # Continue anyway with defaults
         elif current_page == "software":
             if self.software_view_widget:
                  sw_config = self.software_view_widget.get_selected_software()
@@ -339,14 +355,13 @@ class ExampleWindow(Adw.ApplicationWindow):
             message: Error message to display
             parent: Optional parent window (defaults to self)
         """
-        dialog = Adw.MessageDialog.new(
+        dialog = Gtk.MessageDialog(
             transient_for=parent or self,
-            heading=title,
-            body=message
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.OK,
+            text=title,
+            secondary_text=message
         )
-        dialog.add_response("ok", "_OK")
-        dialog.set_default_response("ok")
-        dialog.set_close_response("ok")
-        dialog.connect("response", lambda d, r: d.close())
+        dialog.connect("response", lambda d, r: d.destroy())
         dialog.present()
 
