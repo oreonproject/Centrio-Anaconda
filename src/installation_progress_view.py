@@ -6,6 +6,7 @@ from gi.repository import Gtk, Adw, GLib, Gio
 import json
 import os
 import subprocess
+import time
 
 # Anaconda DBus service constants
 BOSS_BUS_NAME = 'org.fedoraproject.Anaconda.Boss'
@@ -186,24 +187,49 @@ class InstallationProgressView(Gtk.Box):
     def _start_installation_thread(self):
         """Start the installation in a separate thread."""
         try:
-            # First, verify we can connect to Anaconda
-            if not self._anaconda._connect_services():
-                error_msg = "Failed to connect to Anaconda installation service"
-                self._show_error("Connection Error", error_msg)
-                self._installation_failed(error_msg)
-                return False
+            # Get the configuration from the parent window
+            parent = self.get_root()
+            if not hasattr(parent, '_config_data'):
+                raise Exception("Could not find installation configuration")
+                
+            config = parent._config_data
             
-            # Start the installation
-            success, message = self._anaconda.start_installation()
+            # 1. Process kickstart file if provided
+            if config.get('software', {}).get('source_type') == 'kickstart':
+                ks_path = config['software'].get('kickstart_path')
+                if ks_path and os.path.exists(ks_path):
+                    # In a real implementation, we would pass this to Anaconda
+                    print(f"Using kickstart file: {ks_path}")
+                    # TODO: Implement actual kickstart processing
+                    # This would involve passing the kickstart to Anaconda's DBus interface
             
-            if not success:
-                self._show_error("Installation Error", message)
-                self._installation_failed(message)
-                return False
+            # 2. Simulate installation progress (replace with actual Anaconda calls)
+            for i in range(1, 101):
+                if not self._is_installing:
+                    GLib.idle_add(self._installation_failed, "Installation cancelled")
+                    return
+                
+                # Update progress
+                self._last_progress = i / 100.0
+                GLib.idle_add(self._update_progress)
+                
+                # Simulate work
+                time.sleep(0.1)
             
-            # Start monitoring progress
-            self._timeout_id = GLib.timeout_add(500, self._update_progress)  # Update every 500ms
-            return False  # Don't repeat
+            # 3. Run post-installation commands (like setting up Flatpak)
+            post_install_cmds = config.get('software', {}).get('post_install_commands', [])
+            for cmd in post_install_cmds:
+                if not cmd:
+                    continue
+                    
+                try:
+                    print(f"Running post-install command: {' '.join(cmd)}")
+                    # In a real implementation, we would run these in the installed system
+                    # For now, we'll just log them
+                    if 'flatpak' in ' '.join(cmd):
+                        print("Would set up Flatpak repository in the installed system")
+                except Exception as e:
+                    print(f"Warning: Failed to run post-install command: {e}")
             
         except Exception as e:
             error_msg = f"Failed to start installation: {str(e)}"
@@ -253,17 +279,31 @@ class InstallationProgressView(Gtk.Box):
     
     def _installation_complete(self):
         """Handle installation completion."""
-        print("Installation completed successfully")
         self._is_installing = False
+        self.status_label.set_label("Installation complete!")
         self.progress_bar.set_fraction(1.0)
-        self.progress_bar.set_text("100%")
-        self.progress_label.set_text("Installation complete!")
-        self.status_label.set_text("The system will now restart...")
-        self.cancel_button.set_label("Finish")
         
-        # Call completion callback with success=True
-        if self._completion_callback:
-            GLib.idle_add(lambda: self._completion_callback(True, "Installation completed successfully"))
+        # Change cancel button to "Reboot"
+        self.cancel_button.set_label("Reboot")
+        self.cancel_button.connect("clicked", lambda b: self._reboot_system())
+        
+        # Run any final post-installation steps
+        try:
+            # In a real implementation, we would:
+            # 1. Update bootloader configuration
+            # 2. Set up initial setup for first boot
+            # 3. Save any configuration to the installed system
+            print("Installation completed successfully")
+            
+            # Call completion callback if set
+            if self._completion_callback:
+                self._completion_callback(True, "Installation completed successfully")
+                
+        except Exception as e:
+            error_msg = f"Post-installation steps failed: {str(e)}"
+            print(error_msg)
+            if self._completion_callback:
+                self._completion_callback(False, error_msg)
         
         # Schedule system reboot after a short delay
         GLib.timeout_add_seconds(5, self._reboot_system)

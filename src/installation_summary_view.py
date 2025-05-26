@@ -82,7 +82,32 @@ class InstallationSummaryView(Gtk.Box):
         
         # Timezone
         timezone = config_data.get('timezone', 'N/A')
-        self.summary_timezone_row.set_subtitle(timezone)
+        if isinstance(timezone, dict):
+            timezone_str = timezone.get('timezone', 'N/A')
+            ntp_status = "(NTP Enabled)" if timezone.get('ntp_enabled', False) else "(NTP Disabled)"
+            self.summary_timezone_row.set_subtitle(f"{timezone_str} {ntp_status}")
+        else:
+            self.summary_timezone_row.set_subtitle(str(timezone))
+        
+        # Software Selection
+        software = config_data.get('software', {})
+        if not software:
+            self.summary_software_row.set_subtitle("No software selected")
+            return
+            
+        if software.get('source_type') == 'kickstart':
+            ks_path = software.get('kickstart_path', 'Unknown')
+            ks_name = os.path.basename(ks_path) if ks_path else 'Unknown'
+            self.summary_software_row.set_subtitle(f"Kickstart: {ks_name}")
+        else:
+            # Live image packages
+            self.summary_software_row.set_subtitle("Using packages from live image")
+            
+        # Show Flatpak status if enabled
+        if any(cmd and 'flatpak' in ' '.join(cmd) for cmd in software.get('post_install_commands', [])):
+            self.summary_software_row.set_subtitle(
+                f"{self.summary_software_row.get_subtitle()} • Flatpak enabled"
+            )
         
         # Installation Destination
         install_disk = config_data.get('installation_disk', 'N/A')

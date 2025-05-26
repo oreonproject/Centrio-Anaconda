@@ -19,24 +19,87 @@
       </object>
     </child>
 
-    <!-- Placeholder for Base Environment / Add-ons selection -->
+    <!-- Software Source Selection -->
     <child>
-        <object class="GtkLabel">
-            <property name="label" translatable="yes">(Package group / Environment selection controls will go here)</property>
-            <property name="vexpand">true</property>
-            <property name="halign">center</property>
-            <property name="valign">center</property>
-            <property name="margin-top">24</property>
-            <property name="margin-bottom">24</property>
-        </object>
+      <object class="AdwPreferencesGroup">
+        <property name="title" translatable="yes">Software Source</property>
+        <property name="description" translatable="yes">Choose how to install software</property>
+        
+        <!-- Use Live Image Packages -->
+        <child>
+          <object class="AdwActionRow">
+            <property name="title" translatable="yes">Use packages from live image</property>
+            <property name="activatable">True</property>
+            <child>
+              <object class="GtkCheckButton" id="use_live_image_radio">
+                <property name="group">software_source</property>
+                <property name="active">True</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        
+        <!-- Use Kickstart File -->
+        <child>
+          <object class="AdwActionRow">
+            <property name="title" translatable="yes">Use kickstart file</property>
+            <property name="activatable">True</property>
+            <child>
+              <object class="GtkCheckButton" id="use_kickstart_radio">
+                <property name="group">software_source</property>
+              </object>
+            </child>
+          </object>
+        </child>
+        
+        <!-- Kickstart File Chooser -->
+        <child>
+          <object class="GtkFileChooserButton" id="kickstart_file_chooser">
+            <property name="title" translatable="yes">Select Kickstart File</property>
+            <property name="action">open</property>
+            <property name="sensitive">False</property>
+            <property name="margin-start">24</property>
+            <property name="margin-end">12</property>
+            <property name="margin-top">6</property>
+            <property name="margin-bottom">6</property>
+          </object>
+        </child>
+      </object>
     </child>
+    
+    <!-- Additional Options -->
     <child>
-        <object class="GtkLabel" id="selected_software_label">
-            <property name="label" translatable="yes">Selected: Default Workstation (placeholder)</property>
-            <property name="halign">center</property>
-             <property name="css-classes">subtitle</property>
-        </object>
+      <object class="AdwPreferencesGroup">
+        <property name="title" translatable="yes">Additional Options</property>
+        
+        <!-- Enable Flatpak -->
+        <child>
+          <object class="AdwActionRow">
+            <property name="title" translatable="yes">Enable Flatpak support</property>
+            <property name="subtitle" translatable="yes">Adds Flathub repository after installation</property>
+            <property name="activatable">True</property>
+            <child>
+              <object class="GtkSwitch" id="flatpak_switch">
+                <property name="valign">center</property>
+              </object>
+            </child>
+          </object>
+        </child>
+      </object>
     </child>
-
+    
+    <!-- Status Label -->
+    <child>
+      <object class="GtkLabel" id="status_label">
+        <property name="margin-top">12</property>
+        <property name="halign">start</property>
+        <property name="wrap">True</property>
+        <property name="wrap-mode">word-char</property>
+        <style>
+          <class name="dim-label"/>
+        </style>
+      </object>
+    </child>
+    
   </template>
-</interface> 
+</interface>
