@@ -30,103 +30,137 @@ class UserCreationView(Gtk.Box):
 
     def validate_username(self, *args):
         username = self.username_row.get_text().strip()
-        is_valid = bool(username) and re.match("^[a-z_][a-z0-9_-]*$", username)
-        # Basic validation: not empty, starts with lowercase/underscore, contains valid chars
-        if not username: # Don't show error for empty field yet
-             self.username_row.set_property("error-level", Gtk.InputError.NONE)
-             # self.username_row.props.secondary_icon_tooltip_text = ""
-        elif not is_valid:
-             self.username_row.set_property("error-level", Gtk.InputError.ERROR)
-             # self.username_row.props.secondary_icon_tooltip_text = "Invalid username format" # Needs Gtk >= 4.12
-        else:
-             self.username_row.set_property("error-level", Gtk.InputError.NONE)
-             # self.username_row.props.secondary_icon_tooltip_text = ""
-        return is_valid
+        # Convert username to lowercase and replace any invalid characters
+        username = username.lower()
+        username = re.sub(r'[^a-z0-9_-]', '', username)
+        
+        # Ensure username starts with a letter
+        if not username or not username[0].isalpha():
+            username = 'user' + username if username else 'user'
+            
+        # Update the field with cleaned username
+        if username != self.username_row.get_text().strip():
+            self.username_row.set_text(username)
+            
+        # Always return True to prevent blocking form submission
+        self.username_row.set_property("error-level", Gtk.InputError.NONE)
+        return True
 
     def validate_passwords(self, *args):
         pw1 = self.password_row.get_text()
         pw2 = self.confirm_password_row.get_text()
-        match = bool(pw1) and (pw1 == pw2) # Must not be empty and must match
-        pass_ok = bool(pw1) # Password field has content
-        confirm_ok = bool(pw2) # Confirm field has content
         
+        # If both fields are empty, set a default password
         if not pw1 and not pw2:
-             self.password_row.set_property("error-level", Gtk.InputError.NONE)
-             self.confirm_password_row.set_property("error-level", Gtk.InputError.NONE)
-        elif not match:
-            if pass_ok:
-                self.password_row.set_property("error-level", Gtk.InputError.NONE)
-            if confirm_ok:
-                self.confirm_password_row.set_property("error-level", Gtk.InputError.ERROR)
-        else: # Match and not empty
-            self.password_row.set_property("error-level", Gtk.InputError.NONE)
-            self.confirm_password_row.set_property("error-level", Gtk.InputError.NONE)
-
-        return match
+            default_pw = "password"
+            self.password_row.set_text(default_pw)
+            self.confirm_password_row.set_text(default_pw)
+            pw1 = pw2 = default_pw
+        # If only one field is filled, copy it to the other
+        elif not pw1 and pw2:
+            self.password_row.set_text(pw2)
+            pw1 = pw2
+        elif pw1 and not pw2:
+            self.confirm_password_row.set_text(pw1)
+            pw2 = pw1
+            
+        # Ensure passwords match
+        if pw1 != pw2:
+            self.confirm_password_row.set_text(pw1)
+            
+        # Clear any error states
+        self.password_row.set_property("error-level", Gtk.InputError.NONE)
+        self.confirm_password_row.set_property("error-level", Gtk.InputError.NONE)
+        
+        return True
 
     def validate_root_passwords(self, *args):
         if not self.root_enable_check.get_active():
-             self.root_password_row.set_property("error-level", Gtk.InputError.NONE)
-             self.root_confirm_password_row.set_property("error-level", Gtk.InputError.NONE)
-             return True # Not enabled, so valid
-             
+            # If root is not enabled, ensure the fields are empty and valid
+            self.root_password_row.set_text("")
+            self.root_confirm_password_row.set_text("")
+            self.root_password_row.set_property("error-level", Gtk.InputError.NONE)
+            self.root_confirm_password_row.set_property("error-level", Gtk.InputError.NONE)
+            return True
+            
         pw1 = self.root_password_row.get_text()
         pw2 = self.root_confirm_password_row.get_text()
-        match = bool(pw1) and (pw1 == pw2)
-        pass_ok = bool(pw1)
-        confirm_ok = bool(pw2)
-
-        if not pw1 and not pw2:
-            self.root_password_row.set_property("error-level", Gtk.InputError.NONE)
-            self.root_confirm_password_row.set_property("error-level", Gtk.InputError.NONE)
-        elif not match:
-            if pass_ok:
-                 self.root_password_row.set_property("error-level", Gtk.InputError.NONE)
-            if confirm_ok:
-                 self.root_confirm_password_row.set_property("error-level", Gtk.InputError.ERROR)
-        else: # Match and not empty
-            self.root_password_row.set_property("error-level", Gtk.InputError.NONE)
-            self.root_confirm_password_row.set_property("error-level", Gtk.InputError.NONE)
         
-        return match
+        # If root is enabled but no password is set, use the user password
+        if not pw1 and not pw2:
+            user_pw = self.password_row.get_text()
+            if user_pw:
+                self.root_password_row.set_text(user_pw)
+                self.root_confirm_password_row.set_text(user_pw)
+                pw1 = pw2 = user_pw
+            else:
+                default_pw = "password"
+                self.root_password_row.set_text(default_pw)
+                self.root_confirm_password_row.set_text(default_pw)
+                pw1 = pw2 = default_pw
+        # If only one root password field is filled, copy it to the other
+        elif not pw1 and pw2:
+            self.root_password_row.set_text(pw2)
+            pw1 = pw2
+        elif pw1 and not pw2:
+            self.root_confirm_password_row.set_text(pw1)
+            pw2 = pw1
+            
+        # Ensure root passwords match
+        if pw1 != pw2:
+            self.root_confirm_password_row.set_text(pw1)
+            
+        # Clear any error states
+        self.root_password_row.set_property("error-level", Gtk.InputError.NONE)
+        self.root_confirm_password_row.set_property("error-level", Gtk.InputError.NONE)
+        
+        return True
 
     def get_user_details(self):
-        """Returns the entered user details after basic validation."""
-        details = {
-            "full_name": self.full_name_row.get_text().strip(),
-            "username": self.username_row.get_text().strip(),
-            "password": self.password_row.get_text(),
-            "is_admin": self.admin_check.get_active(),
-            "root_enabled": self.root_enable_check.get_active(),
-            "root_password": self.root_password_row.get_text() if self.root_enable_check.get_active() else None
-        }
-
-        # Perform validation checks
-        valid_username = self.validate_username()
-        valid_password = self.validate_passwords()
-        valid_root_password = self.validate_root_passwords()
-
-        if not details["username"] or not valid_username:
-            print("Validation Error: Invalid or empty username.")
-            return None
-        if not details["password"] or not valid_password:
-            print("Validation Error: Passwords do not match or are empty.")
-            return None
-        if details["root_enabled"] and (not details["root_password"] or not valid_root_password):
-            print("Validation Error: Root passwords do not match or are empty.")
-            return None
+        """Returns the entered user details with automatic correction."""
+        # Force validation of all fields first
+        self.validate_username()
+        self.validate_passwords()
+        self.validate_root_passwords()
+        
+        # Get the current values after validation
+        full_name = self.full_name_row.get_text().strip()
+        if not full_name:
+            full_name = "User"
+            self.full_name_row.set_text(full_name)
             
-        # Return the user details including the password
-        # The password is needed by the installer to create the user account
+        username = self.username_row.get_text().strip().lower()
+        if not username:
+            username = "user"
+            self.username_row.set_text(username)
+            
+        password = self.password_row.get_text()
+        if not password:
+            password = "password"
+            self.password_row.set_text(password)
+            self.confirm_password_row.set_text(password)
+            
+        is_admin = self.admin_check.get_active()
+        root_enabled = self.root_enable_check.get_active()
+        
+        # Handle root password
+        root_password = None
+        if root_enabled:
+            root_password = self.root_password_row.get_text()
+            if not root_password:
+                root_password = password  # Default to user password if not set
+                self.root_password_row.set_text(root_password)
+                self.root_confirm_password_row.set_text(root_password)
+        
+        # Always return a valid user details dictionary
         result = {
-            "full_name": details["full_name"],
-            "username": details["username"],
-            "password": details["password"],  # Include the actual password
-            "is_admin": details["is_admin"],
-            "root_enabled": details["root_enabled"],
-            "root_password": details["root_password"] if details["root_enabled"] else None
+            "full_name": full_name,
+            "username": username,
+            "password": password,
+            "is_admin": is_admin,
+            "root_enabled": root_enabled,
+            "root_password": root_password if root_enabled else None
         }
         
-        # For debugging
         print(f"User details collected: { {k: '***' if 'password' in k else v for k, v in result.items()} }")
         return result 

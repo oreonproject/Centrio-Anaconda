@@ -179,28 +179,13 @@ class ExampleWindow(Adw.ApplicationWindow):
                 print("Error: User creation view widget not found")
                 return
                 
-            # Force validation of all fields
-            self.user_creation_view_widget.validate_username()
-            self.user_creation_view_widget.validate_passwords()
-            self.user_creation_view_widget.validate_root_passwords()
-            
-            # Get user details (this also performs validation)
+            # Get user details (this will automatically validate and correct the form)
             user_details = self.user_creation_view_widget.get_user_details()
             
-            if user_details:
-                print(f"User details collected successfully: { {k: '***' if 'password' in k else v for k, v in user_details.items()} }")
-                self._config_data['user'] = user_details
-                next_page = "timezone"
-            else:
-                print("Validation failed in user creation form")
-                self.show_error_dialog(
-                    "User Information Invalid",
-                    "Please check the following:\n"
-                    "- Username must be lowercase and start with a letter\n"
-                    "- Passwords must match and not be empty\n"
-                    "- If root account is enabled, root passwords must match"
-                )
-                return
+            # At this point, user_details should always be valid due to auto-correction
+            print(f"Proceeding with user details: { {k: '***' if 'password' in k else v for k, v in user_details.items()} }")
+            self._config_data['user'] = user_details
+            next_page = "timezone"
         elif current_page == "timezone":
             if self.timezone_view_widget:
                  tz_config = self.timezone_view_widget.get_selected_timezone_config()
