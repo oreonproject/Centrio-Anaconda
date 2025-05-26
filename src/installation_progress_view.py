@@ -186,55 +186,127 @@ class InstallationProgressView(Gtk.Box):
     def _start_installation_thread(self):
         """Start the installation in a separate thread."""
         try:
-            # Get the configuration from the parent window
-            parent = self.get_root()
-            if not hasattr(parent, '_config_data'):
-                raise Exception("Could not find installation configuration")
-                
-            config = parent._config_data
+            # 1. Get the installation configuration
+            config = {
+                'software': {
+                    'source_type': 'live_image',
+                    'post_install_commands': []
+                },
+                'storage': {
+                    # Default storage configuration
+                }
+            }
             
-            # 1. Process kickstart file if provided
-            if config.get('software', {}).get('source_type') == 'kickstart':
-                ks_path = config['software'].get('kickstart_path')
+            # Check if we have a kickstart file
+            if hasattr(self, '_config_data') and 'software' in self._config_data:
+                ks_path = self._config_data['software'].get('kickstart_path')
                 if ks_path and os.path.exists(ks_path):
-                    # In a real implementation, we would pass this to Anaconda
+                    config['software']['source_type'] = 'kickstart'
+                    config['software']['kickstart_path'] = ks_path
                     print(f"Using kickstart file: {ks_path}")
-                    # TODO: Implement actual kickstart processing
-                    # This would involve passing the kickstart to Anaconda's DBus interface
+                    
+                    # Read the kickstart file
+                    try:
+                        with open(ks_path, 'r') as f:
+                            ks_content = f.read()
+                        # Here you would parse the kickstart file and apply its settings
+                        print(f"Parsed kickstart file with {len(ks_content)} characters")
+                    except Exception as e:
+                        print(f"Error reading kickstart file: {e}")
+                        GLib.idle_add(self._installation_failed, f"Failed to read kickstart file: {e}")
+                        return False
             
             # 2. Start the progress updates
             GLib.idle_add(lambda: GLib.timeout_add(100, self._update_progress))
             
-            # 3. In a real implementation, we would start the actual installation here
-            # For now, we'll just simulate the installation
-            time.sleep(2)  # Simulate some initial work
+            # 3. Start the actual installation using Anaconda's DBus interface
+            GLib.idle_add(self.status_label.set_label, "Starting installation process...")
             
-            # 4. Run post-installation commands (like setting up Flatpak)
+            # Connect to Anaconda's DBus service
+            if not self._anaconda._connect_services():
+                raise Exception("Failed to connect to Anaconda services")
+            
+            # Configure storage (this is a simplified example)
+            try:
+                # Get the first disk
+                disks = self._anaconda._storage_proxy.call_sync(
+                    'GetDisks',
+                    None,
+                    Gio.DBusCallFlags.NONE,
+                    -1,
+                    None
+                ).unpack()[0]
+                
+                if not disks:
+                    raise Exception("No disks found for installation")
+                
+                # Use the first disk for installation (simplified)
+                disk = disks[0]
+                
+                # Create a simple storage configuration
+                storage_config = {
+                    'disks': [disk],
+                    'clear_part_type': 'all',
+                    'default_partitioning': True
+                }
+                
+                # Apply the storage configuration
+                self._anaconda._storage_proxy.call_sync(
+                    'ConfigureWithTask',
+                    GLib.Variant('(s)', (json.dumps(storage_config),)),
+                    Gio.DBusCallFlags.NONE,
+                    -1,
+                    None
+                )
+                
+            except Exception as e:
+                print(f"Error configuring storage: {e}")
+                raise Exception(f"Storage configuration failed: {e}")
+            
+            # 4. Start the installation
+            GLib.idle_add(self.status_label.set_label, "Installing system...")
+            
+            # Start the installation
+            success, message = self._anaconda.start_installation()
+            if not success:
+                raise Exception(f"Installation failed: {message}")
+            
+            # 5. Monitor the installation progress
+            while self._is_installing:
+                progress, status = self._anaconda.get_installation_progress()
+                if progress >= 1.0:
+                    break
+                
+                # Update progress
+                self._simulated_progress = progress
+                GLib.idle_add(self.status_label.set_label, status)
+                time.sleep(0.5)
+            
+            # 6. Run post-installation commands
             post_install_cmds = config.get('software', {}).get('post_install_commands', [])
             if post_install_cmds:
                 GLib.idle_add(self.status_label.set_label, "Configuring additional software...")
-                time.sleep(1)  # Simulate post-install work
                 
                 for cmd in post_install_cmds:
                     if not cmd:
                         continue
                         
                     try:
-                        print(f"Would run post-install command: {' '.join(cmd)}")
-                        # In a real implementation, we would run these in the installed system
-                        if 'flatpak' in ' '.join(cmd):
-                            print("Would set up Flatpak repository in the installed system")
+                        print(f"Running post-install command: {' '.join(cmd)}")
+                        subprocess.run(cmd, check=True, capture_output=True, text=True)
+                    except subprocess.CalledProcessError as e:
+                        print(f"Warning: Post-install command failed: {e.stderr}")
                     except Exception as e:
                         print(f"Warning: Failed to run post-install command: {e}")
             
-            # The progress updates will continue in the background
-            return
+            # 7. Installation complete
+            GLib.idle_add(self._installation_complete)
+            return True
             
         except Exception as e:
             error_msg = f"Installation failed: {str(e)}"
             print(error_msg)
             GLib.idle_add(self._installation_failed, error_msg)
-            return False
     
     def _update_progress(self):
         """Update the installation progress."""

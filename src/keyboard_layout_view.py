@@ -87,19 +87,64 @@ class KeyboardLayoutView(Gtk.Box):
     def _get_layouts_fallback(self):
         """Fallback method to get layouts using localectl."""
         try:
+            # Get the list of layouts
             result = subprocess.run(["localectl", "list-x11-keymap-layouts"], 
                                   capture_output=True, text=True, check=True)
             layouts = result.stdout.strip().split('\n')
+            
+            # Get human-readable names for layouts
+            readable_names = {}
+            try:
+                # Try to get the full names from the XKB database
+                xkb_path = "/usr/share/X11/xkb/rules/evdev.lst"
+                if os.path.exists(xkb_path):
+                    with open(xkb_path, 'r', encoding='utf-8') as f:
+                        in_layout_section = False
+                        for line in f:
+                            line = line.strip()
+                            if line == "! layout":
+                                in_layout_section = True
+                                continue
+                            elif line.startswith("!"):
+                                in_layout_section = False
+                                continue
+                                
+                            if in_layout_section and line:
+                                parts = line.split()
+                                if len(parts) >= 2:
+                                    code = parts[0]
+                                    name = " ".join(parts[1:]).strip()
+                                    readable_names[code] = name
+            except Exception as e:
+                print(f"Error reading XKB database: {e}")
+            
+            # Create a list of (code, name) tuples
+            layout_list = []
+            for code in layouts:
+                if not code:
+                    continue
+                name = readable_names.get(code, code.upper())
+                layout_list.append((code, name))
+            
+            # Sort by name
             try:
                 locale.setlocale(locale.LC_COLLATE, '')
+                layout_list.sort(key=lambda x: locale.strxfrm(x[1]))
             except locale.Error:
-                pass  # Keep default C locale if setting fails
-            layouts.sort(key=locale.strxfrm)
-            print(f"Found {len(layouts)} layouts via localectl")
-            return layouts
+                layout_list.sort(key=lambda x: x[1])  # Fallback to simple sort
+                
+            print(f"Found {len(layout_list)} layouts")
+            return layout_list
+            
         except (FileNotFoundError, subprocess.CalledProcessError) as e:
             print(f"Error running localectl: {e}")
-            return ["us", "gb", "de", "fr"]  # Default fallback
+            # Return some common layouts as fallback
+            return [
+                ("us", "English (US)"),
+                ("gb", "English (UK)"),
+                ("de", "German"),
+                ("fr", "French")
+            ]
 
     def populate_layouts(self):
         """Populates the list box with available layouts."""
@@ -117,18 +162,36 @@ class KeyboardLayoutView(Gtk.Box):
 
         # Add rows that match the search term (case-insensitive)
         term = search_term.lower() if search_term else None
-        for layout in self._all_layouts:
-            if term is None or term in layout.lower():
+        for code, name in self._all_layouts:
+            if term is None or term in name.lower() or term in code.lower():
                 # Create a new ListBoxRow
                 row = Gtk.ListBoxRow()
-                # Create a box to hold the layout label
+                
+                # Create a box to hold the layout info
                 box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-                # Create the layout label
-                label = Gtk.Label(label=layout, xalign=0)
-                label.set_hexpand(True)
-                box.append(label)
+                box.set_margin_top(6)
+                box.set_margin_bottom(6)
+                box.set_margin_start(12)
+                box.set_margin_end(12)
+                
+                # Create the layout name label
+                name_label = Gtk.Label(label=name, xalign=0)
+                name_label.set_hexpand(True)
+                
+                # Create the layout code label
+                code_label = Gtk.Label(label=f"({code})", xalign=0)
+                code_label.get_style_context().add_class("dim-label")
+                
+                # Add labels to the box
+                box.append(name_label)
+                box.append(code_label)
+                
                 # Add the box to the row
                 row.set_child(box)
+                
+                # Store the code as row data
+                row.set_data("layout_code", code)
+                
                 # Add the row to the list box
                 self.layout_list_box.append(row)
         
@@ -146,14 +209,12 @@ class KeyboardLayoutView(Gtk.Box):
     def on_row_selected(self, list_box, row):
         """Called when a layout is selected in the list."""
         if row:
-            # Get the box containing the label
-            box = row.get_child()
-            # Get the first child of the box, which is our label
-            label = box.get_first_child()
-            if label and isinstance(label, Gtk.Label):
-                self.selected_layout = label.get_label()
-                print(f"Selected layout: {self.selected_layout}")
-                self._set_keyboard_layout(self.selected_layout)
+            # Get the layout code from the row's data
+            layout_code = row.get_data("layout_code")
+            if layout_code:
+                self.selected_layout = layout_code
+                print(f"Selected layout: {layout_code}")
+                self._set_keyboard_layout(layout_code)
         else:
             self.selected_layout = None
             print("Layout deselected")
@@ -192,30 +253,29 @@ class KeyboardLayoutView(Gtk.Box):
                            f"Failed to set keyboard layout: {e.message}")
             
     def get_list_rows(self):
-        """Helper to get all GtkLabel children from the listbox rows."""
+        """Helper to get all layout codes from the listbox rows."""
         rows = []
         child = self.layout_list_box.get_first_child()
         while child:
             if isinstance(child, Gtk.ListBoxRow):
-                box = child.get_child()
-                if box and isinstance(box, Gtk.Box):
-                    label = box.get_first_child()
-                    if label and isinstance(label, Gtk.Label):
-                        rows.append(label)
+                layout_code = child.get_data("layout_code")
+                if layout_code:
+                    rows.append(layout_code)
             child = child.get_next_sibling()
         return rows
 
-    def select_layout_in_list(self, layout_name):
+    def select_layout_in_list(self, layout_code):
         """Programmatically selects a layout in the list."""
+        if not layout_code:
+            return
+            
         child = self.layout_list_box.get_first_child()
         while child:
             if isinstance(child, Gtk.ListBoxRow):
-                box = child.get_child()
-                if box and isinstance(box, Gtk.Box):
-                    label = box.get_first_child()
-                    if label and isinstance(label, Gtk.Label) and label.get_label() == layout_name:
-                        self.layout_list_box.select_row(child)
-                        break
+                code = child.get_data("layout_code")
+                if code == layout_code:
+                    self.layout_list_box.select_row(child)
+                    break
             child = child.get_next_sibling()
 
     def get_selected_layout(self):
