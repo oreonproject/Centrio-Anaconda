@@ -54,14 +54,28 @@
         
         <!-- Kickstart File Chooser -->
         <child>
-          <object class="GtkFileChooserButton" id="kickstart_file_chooser">
-            <property name="title" translatable="yes">Select Kickstart File</property>
-            <property name="action">open</property>
-            <property name="sensitive">False</property>
+          <object class="GtkBox">
+            <property name="orientation">horizontal</property>
             <property name="margin-start">24</property>
             <property name="margin-end">12</property>
             <property name="margin-top">6</property>
             <property name="margin-bottom">6</property>
+            <property name="spacing">12</property>
+            <child>
+              <object class="GtkButton" id="kickstart_file_button">
+                <property name="label" translatable="yes">Select Kickstart File</property>
+                <property name="sensitive">False</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkLabel" id="kickstart_file_label">
+                <property name="hexpand">True</property>
+                <property name="ellipsize">end</property>
+                <style>
+                  <class name="dim-label"/>
+                </style>
+              </object>
+            </child>
           </object>
         </child>
       </object>

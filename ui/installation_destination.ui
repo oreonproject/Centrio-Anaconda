@@ -23,7 +23,7 @@
     <child>
         <object class="AdwPreferencesGroup">
             <property name="title" translatable="yes">Local Standard Disks</property>
-            <property name="description" translatable="yes">Select the disks where you want to install Fedora.</property>
+            <property name="description" translatable="yes">Select the disks where you want to install Oreon.</property>
              <child>
                 <object class="GtkScrolledWindow">
                     <property name="vexpand">true</property>

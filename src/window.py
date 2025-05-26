@@ -254,7 +254,7 @@ class ExampleWindow(Adw.ApplicationWindow):
             # Confirmation before starting installation
             dialog = Adw.MessageDialog(transient_for=self,
                                        heading="Begin Installation?",
-                                       body="This will start installing Fedora with the selected settings. Disk contents will be modified.")
+                                       body="This will start installing Oreon with the selected settings. Disk contents will be modified.")
             dialog.add_response("cancel", "_Cancel")
             dialog.add_response("install", "_Begin Installation")
             dialog.set_response_appearance("install", Adw.ResponseAppearance.SUGGESTED)

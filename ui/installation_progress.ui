@@ -13,8 +13,8 @@
     <property name="hexpand">true</property>
 
     <child>
-      <object class="GtkLabel">
-        <property name="label" translatable="yes">Installing Fedora</property>
+      <object class="GtkLabel" id="title_label">
+        <property name="label" translatable="yes">Installing Oreon</property>
         <property name="halign">center</property>
         <property name="css-classes">title-1</property>
         <property name="margin-bottom">24</property>
@@ -31,14 +31,22 @@
     </child>
 
     <child>
-        <object class="GtkLabel" id="progress_label">
-            <property name="label" translatable="yes">Preparing...</property>
-            <property name="halign">center</property>
-             <property name="css-classes">caption</property>
-        </object>
+      <object class="GtkLabel" id="status_label">
+        <property name="label" translatable="yes">Preparing installation...</property>
+        <property name="halign">center</property>
+        <property name="margin-bottom">24</property>
+        <property name="wrap">true</property>
+        <property name="wrap-mode">word-char</property>
+      </object>
     </child>
 
-     <!-- Optional: Add a section for detailed logs -->
+    <child>
+      <object class="GtkButton" id="cancel_button">
+        <property name="label" translatable="yes">Cancel</property>
+        <property name="halign">center</property>
+        <property name="margin-top">12</property>
+      </object>
+    </child>
 
   </template>
 </interface> 

@@ -140,8 +140,8 @@ class InstallationProgressView(Gtk.Box):
     __gtype_name__ = 'InstallationProgressView'
 
     # Template Children
+    title_label = Gtk.Template.Child()
     progress_bar = Gtk.Template.Child()
-    progress_label = Gtk.Template.Child()
     status_label = Gtk.Template.Child()
     cancel_button = Gtk.Template.Child()
 
@@ -203,69 +203,80 @@ class InstallationProgressView(Gtk.Box):
                     # TODO: Implement actual kickstart processing
                     # This would involve passing the kickstart to Anaconda's DBus interface
             
-            # 2. Simulate installation progress (replace with actual Anaconda calls)
-            for i in range(1, 101):
-                if not self._is_installing:
-                    GLib.idle_add(self._installation_failed, "Installation cancelled")
-                    return
-                
-                # Update progress
-                self._last_progress = i / 100.0
-                GLib.idle_add(self._update_progress)
-                
-                # Simulate work
-                time.sleep(0.1)
+            # 2. Start the progress updates
+            GLib.idle_add(lambda: GLib.timeout_add(100, self._update_progress))
             
-            # 3. Run post-installation commands (like setting up Flatpak)
+            # 3. In a real implementation, we would start the actual installation here
+            # For now, we'll just simulate the installation
+            time.sleep(2)  # Simulate some initial work
+            
+            # 4. Run post-installation commands (like setting up Flatpak)
             post_install_cmds = config.get('software', {}).get('post_install_commands', [])
-            for cmd in post_install_cmds:
-                if not cmd:
-                    continue
-                    
-                try:
-                    print(f"Running post-install command: {' '.join(cmd)}")
-                    # In a real implementation, we would run these in the installed system
-                    # For now, we'll just log them
-                    if 'flatpak' in ' '.join(cmd):
-                        print("Would set up Flatpak repository in the installed system")
-                except Exception as e:
-                    print(f"Warning: Failed to run post-install command: {e}")
+            if post_install_cmds:
+                GLib.idle_add(self.status_label.set_label, "Configuring additional software...")
+                time.sleep(1)  # Simulate post-install work
+                
+                for cmd in post_install_cmds:
+                    if not cmd:
+                        continue
+                        
+                    try:
+                        print(f"Would run post-install command: {' '.join(cmd)}")
+                        # In a real implementation, we would run these in the installed system
+                        if 'flatpak' in ' '.join(cmd):
+                            print("Would set up Flatpak repository in the installed system")
+                    except Exception as e:
+                        print(f"Warning: Failed to run post-install command: {e}")
+            
+            # The progress updates will continue in the background
+            return
             
         except Exception as e:
-            error_msg = f"Failed to start installation: {str(e)}"
+            error_msg = f"Installation failed: {str(e)}"
             print(error_msg)
-            self._show_error("Installation Error", error_msg)
-            self._installation_failed(error_msg)
+            GLib.idle_add(self._installation_failed, error_msg)
             return False
     
     def _update_progress(self):
         """Update the installation progress."""
         if not self._is_installing:
             return GLib.SOURCE_REMOVE
-        
+            
         try:
-            # Get progress from Anaconda
-            progress, message = self._anaconda.get_installation_progress()
+            # Simulate progress for now
+            if hasattr(self, '_simulated_progress'):
+                self._simulated_progress += 0.01
+                if self._simulated_progress >= 1.0:
+                    self._simulated_progress = 1.0
+                    self._is_installing = False
+                    GLib.idle_add(self._installation_complete)
+                    return GLib.SOURCE_REMOVE
+                
+                progress = self._simulated_progress
+            else:
+                # First run
+                self._simulated_progress = 0.0
+                progress = 0.0
             
             # Update UI
-            progress_fraction = max(0.0, min(1.0, progress / 100.0))  # Ensure between 0-1
-            self.progress_bar.set_fraction(progress_fraction)
-            self.progress_bar.set_text(f"{int(progress)}%")
-            self.progress_label.set_text(message or "Installing...")
+            self.progress_bar.set_fraction(progress)
+            self.progress_bar.set_text(f"{int(progress * 100)}%")
             
-            # Update status with storage info periodically
-            if progress - self._last_progress >= 5.0:  # Every 5% or so
-                try:
-                    storage_status = self._anaconda.get_storage_status()
-                    self.status_label.set_text(f"Status: {storage_status}")
-                except Exception as e:
-                    print(f"Error getting storage status: {e}")
-                    self.status_label.set_text("Status: Installing...")
+            # Update status message based on progress
+            if progress < 0.3:
+                status = "Preparing installation..."
+            elif progress < 0.6:
+                status = "Installing system packages..."
+            elif progress < 0.9:
+                status = "Configuring system..."
+            else:
+                status = "Finalizing installation..."
                 
-                self._last_progress = progress
+            self.status_label.set_label(status)
+            self._last_progress = progress
             
             # Check if installation is complete
-            if progress >= 100.0:
+            if progress >= 1.0:
                 self._installation_complete()
                 return GLib.SOURCE_REMOVE
                 
@@ -280,30 +291,17 @@ class InstallationProgressView(Gtk.Box):
     def _installation_complete(self):
         """Handle installation completion."""
         self._is_installing = False
-        self.status_label.set_label("Installation complete!")
         self.progress_bar.set_fraction(1.0)
+        self.progress_bar.set_text("100%")
+        self.status_label.set_label("Installation complete! The system will now reboot.")
         
         # Change cancel button to "Reboot"
-        self.cancel_button.set_label("Reboot")
+        self.cancel_button.set_label("Reboot Now")
         self.cancel_button.connect("clicked", lambda b: self._reboot_system())
         
-        # Run any final post-installation steps
-        try:
-            # In a real implementation, we would:
-            # 1. Update bootloader configuration
-            # 2. Set up initial setup for first boot
-            # 3. Save any configuration to the installed system
-            print("Installation completed successfully")
-            
-            # Call completion callback if set
-            if self._completion_callback:
-                self._completion_callback(True, "Installation completed successfully")
-                
-        except Exception as e:
-            error_msg = f"Post-installation steps failed: {str(e)}"
-            print(error_msg)
-            if self._completion_callback:
-                self._completion_callback(False, error_msg)
+        # Call completion callback if set
+        if self._completion_callback:
+            self._completion_callback(True, "Installation completed successfully")
         
         # Schedule system reboot after a short delay
         GLib.timeout_add_seconds(5, self._reboot_system)
